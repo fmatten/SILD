@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'sild-filter-mllp'
+    static_configs:
+      - targets: ['sild-filter:9100']
+        labels:
+          service: 'sild-filter'
+          environment: 'demo'
+
+  - job_name: 'sild-filter-fhir'
+    static_configs:
+      - targets: ['sild-fhir-filter:9101']
+        labels:
+          service: 'sild-fhir-filter'
+          environment: 'demo'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

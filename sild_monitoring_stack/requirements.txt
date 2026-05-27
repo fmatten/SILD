@@ -1,0 +1,17 @@
+# SILD Monitoring Stack — Python-Abhaengigkeiten
+# N-4 Fix: Alle Abhaengigkeiten dokumentiert (Pflicht + Optional)
+
+# ---- Pflichtabhaengigkeit ----
+# Prometheus-Exporter fuer sild_mllp_filter.py und sild_fhir_filter.py
+prometheus_client>=0.19.0
+
+# ---- Optionale Abhaengigkeiten ----
+
+# Primaerer SILD-Detektor (hoehere Accuracy als Inline-Fallback)
+# Wenn installiert, wird cairn.sild statt des eingebauten Detektors verwendet.
+# FM-2-Referenzimplementierung — siehe codeberg.org/iscad/cairn
+# cairn>=1.0.0
+
+# DE-Basisprofile / MII-Regelset (sild_fhir_profiles_de.py, FM-4 §3.2)
+# Keine zusaetzlichen Pakete noetig — verwendet nur sild_detector.py
+# Aktivierung: --profiles-de Flag in sild_fhir_filter.py

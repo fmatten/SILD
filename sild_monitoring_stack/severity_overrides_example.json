@@ -1,0 +1,32 @@
+{
+  "_comment": "FM-4 §2.4: Severity-Override-Konfiguration — Sigma_eff = o_tenant o o_default o Sigma_intrinsic",
+  "_doc": "Overrides ändern nur die operative Konsequenz (effective_severity). Die intrinsische Severity bleibt im Audit-Log unverändert.",
+
+  "default_overrides": [
+    {
+      "_comment": "Systemweit: Attribute Dropping auf OBX-Ebene als warning statt info",
+      "pattern": "Attribute Dropping",
+      "location_prefix": "OBX/",
+      "severity": "warning"
+    }
+  ],
+
+  "tenant_overrides": {
+    "KIS-KARDIOLOGIE|KH-NORD": [
+      {
+        "_comment": "Kardiologie: Reference Severing immer critical (Encounter-Verlust ist hier klinisch gefährlich)",
+        "pattern": "Reference Severing",
+        "location_prefix": "",
+        "severity": "critical"
+      }
+    ],
+    "KIS-LABOR|KH-MITTE": [
+      {
+        "_comment": "Labor: Temporal Collapse nur info (Labormessungen sind Zeitpunkte, kein Intervall erwartet)",
+        "pattern": "Temporal Collapse",
+        "location_prefix": "OBR/",
+        "severity": "info"
+      }
+    ]
+  }
+}

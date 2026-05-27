@@ -1,0 +1,99 @@
+SILD — Signal-Loss Inspection at Data-boundaries
+FM-4 konformer Monitoring-Stack für klinische Cross-System-Übertragungen.
+
+Copyright (c) 2026 Friedhelm Matten / ISCaD GmbH
+
+SILD is distributed under a dual-license model:
+
+  - GNU Affero General Public License v3.0 only (AGPL-3.0-only); or
+  - a separate commercial license from ISCaD GmbH.
+
+Unless a separate written commercial license agreement has been concluded
+with ISCaD GmbH, this software is provided under the AGPL-3.0-only.
+
+SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
+
+Repository: https://github.com/fmatten/SILD
+Mirror:     https://codeberg.org/fmatten/sild
+
+For commercial licensing enquiries:
+  friedhelm.matten@iscad-it.de
+  https://iscad-it.de
+
+Theoretical foundation:
+  FM-4: Signal-Loss Inspection at Data-boundaries
+  DOI: https://doi.org/10.5281/zenodo.20391260
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOT A MEDICAL DEVICE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SILD is a data quality monitoring tool. It is NOT a medical device
+as defined by:
+
+  - EU MDR 2017/745 (Medical Device Regulation)
+  - EU IVDR 2017/746 (In Vitro Diagnostic Regulation)
+  - MPDG — Medizinprodukterecht-Durchführungsgesetz (Deutschland)
+
+SILD does NOT:
+  - Provide clinical decision support
+  - Process real patient data in production contexts
+  - Diagnose, treat, or monitor any medical condition
+  - Replace professional medical judgment
+
+SILD is intended exclusively for:
+  - Data quality monitoring and interoperability validation
+  - Formal detection of information loss in clinical system mappings
+  - Research and education
+  - Reference implementation of FM-4
+
+Use in clinical production environments requires appropriate governance,
+validation, risk management and regulatory assessment by the user.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THIRD-PARTY COMPONENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SILD uses the following third-party components as unmodified container
+images or Python packages under their respective licences:
+
+MONITORING INFRASTRUCTURE (unmodified container images)
+  Prometheus        Apache License 2.0
+    https://prometheus.io
+    Used for: Metrics collection
+
+  Grafana           GNU Affero General Public License v3.0
+    https://grafana.com
+    Used for: Dashboard visualisation
+
+PYTHON DEPENDENCIES
+  hl7               >= 0.4      BSD-3-Clause
+    https://python-hl7.readthedocs.io
+    Used for: HL7 v2 message parsing (MLLP)
+
+  fhir.resources    >= 7.1      BSD-3-Clause
+    https://github.com/nazrulworld/fhir.resources
+    Used for: FHIR R4 resource parsing
+
+  prometheus-client >= 0.18     Apache License 2.0
+    https://github.com/prometheus/client_python
+    Used for: Metrics export
+
+  cairn-clinical    >= 1.0      AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
+    https://github.com/fmatten/CAIRN
+    Used for: FM-2 formal verification (optional)
+
+The unmodified third-party container images (Prometheus, Grafana) are
+governed exclusively by their own licences and are not subject to the
+AGPL-3.0-only OR Commercial dual-licence of SILD source code.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTRIBUTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Contributions to SILD are welcome under the terms of AGPL-3.0-only.
+By contributing, you agree that your contributions will be licensed
+under the same licence (AGPL-3.0-only) and returned to the reference system.

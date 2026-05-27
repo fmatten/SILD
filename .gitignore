@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+*.log
+*.jsonl
+FM-4-v2.pdf
