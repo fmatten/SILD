@@ -146,9 +146,6 @@ def compute_loss_budget_bits(losses: list) -> float:
 # Sonstige Detektionskonstanten
 # ===========================================================================
 
-CONTINUOUS_PROCEDURE_KEYWORDS = {
-    "monitoring", "continuous", "infusion", "telemetry", "observation",
-}
 SPECIFIC_LAB_KEYWORDS = {
     "hemoglobin", "troponin", "lactate", "glucose", "creatinine",
     "hematocrit", "erythrocyt", "leukocyt", "platelet", "hba1c",

@@ -70,6 +70,26 @@ def _fhir_cc_narrowing(cc: dict) -> tuple:
 
 Neue Konstanten: `HL7_STRUCTURED_SYSTEMS`, `FHIR_SPECIFIC_SYSTEMS`, `FHIR_GENERIC_SYSTEMS`.
 
+**Verbleibende Display-Heuristik (ausdrücklich offengelegt, H2):**
+Wenn der Primärpfad keine Aussage trifft — d. h. eine FHIR-Observation hat
+`category` in `GENERIC_FHIR_CATEGORIES` _und_ eine Coding, deren System nicht
+in `FHIR_SPECIFIC_SYSTEMS` liegt — sucht der Detektor zusätzlich nach
+Substring-Treffern aus `SPECIFIC_LAB_KEYWORDS` im `display.lower()`-Text
+(`sild_detector.py` in der TN-CC-Analyse). Analog wird Temporal Collapse mit
+der Substring-Menge `{"mean", "average", "avg", "durchschnitt"}` als
+Aggregat-Indikator unterstützt, wenn die Kategorie kein Zeitintervall impliziert.
+
+Diese Pfade sind **Heuristiken für generische, nicht strukturierte Eingaben** —
+keine Strukturanalyse — und können prinzipiell Falsch-Positive und Falsch-
+Negative produzieren. Sie sind als Hilfsschicht unter dem Primärpfad gedacht,
+nicht als Konformitäts-Kern. Empirische Kalibrierung dieser Sets ist offene
+Arbeit (FM-4 §8.2).
+
+Die früher ebenfalls vorhandene Menge `CONTINUOUS_PROCEDURE_KEYWORDS` war
+unbenutzt (toter Code) und wurde im H2-Fix entfernt; kontinuierliche
+Prozeduren werden ausschließlich über `CONTINUOUS_PROCEDURE_CODES_FHIR`
+(strukturelle Code-Liste) erkannt.
+
 ---
 
 ### K-2 [BEHOBEN] — MLLP-Block: Protokollkonformes NAK-AE
