@@ -266,30 +266,44 @@ Nur WARNING/CRITICAL-Findings erzeugen AuditEvents (FM-4 §5.2).
 
 ---
 
-### M-6 [BEHOBEN] — Quantitative Verlust-Metrik
+### M-6 [TEILWEISE — kategoriale Schaetzung] — Verlust-Budget-Schaetzer
 
 **FM-4-Anforderung:** §4.1 — Entropie-Schatzungen L_TN, L_TC, L_AD, L_RS.
 
 **Ursprungliches Problem:** Kein Bit-Budget; nur Pattern-Klassifikation.
 
-**Losung (pre-public-baseline):**
+**Losung (pre-public-baseline + H5):**
 
 ```python
 LOSS_BITS_PER_PATTERN = {
-    "Type Narrowing":     math.log2(95_000),  # LOINC: ~16.5 bit
-    "Temporal Collapse":  math.log2(60),       # 1h@60s: ~5.9 bit
-    "Attribute Dropping": math.log2(16),       # konservativ: 4.0 bit
-    "Reference Severing": 24.0,                # FM-4 §4.1: 24 bit
+    "Type Narrowing":     math.log2(95_000),  # LOINC: ~16.5 bit (Konstante)
+    "Temporal Collapse":  math.log2(60),       # 1h@60s: ~5.9 bit (Konstante)
+    "Attribute Dropping": math.log2(16),       # konservativ: 4.0 bit (Konstante)
+    "Reference Severing": 24.0,                # FM-4 §4.1: 24 bit (Konstante)
 }
 ```
 
-`SILDReport.loss_budget_bits = compute_loss_budget_bits(losses)` (Summe).
+`SILDReport.loss_budget_bits_estimate = compute_loss_budget_bits_estimate(losses)`
+(Summe der konstanten Pro-Muster-Beitraege).
 
 Neues Prometheus-Histogram:
 ```
-sild_loss_budget_bits{protocol, message_type}
+sild_loss_budget_bits_estimate{protocol, message_type}
 Buckets: (10, 20, 40, 80, 160, 320, 640) bit
 ```
+
+**Grenzen (H5, ausdruecklich offengelegt):** Die vier Bit-Werte sind statische
+Pro-Muster-Konstanten ohne Bezug zu Nachrichteninhalt, Terminologie-Groesse,
+Feld-Spezifitaet oder Bundle-Kontext. Sie sind als Groessenordnungs-Schaetzung
+fuer Vergleich und Trendanalyse brauchbar, **nicht** als absolute
+Bit-Quantifizierung (RFC v0.2 §8). Empirische Pro-Nachricht-Kalibrierung
+gegen reale v2-zu-FHIR-Mappings ist offene Arbeit (FM-4 §8.2) und wird im
+unten stehenden "Verbleibende offene Punkte"-Abschnitt gefuehrt. Status
+deshalb "TEILWEISE — kategoriale Schaetzung", nicht "BEHOBEN".
+
+Die Umbenennung des Feldes/der Metrik von `loss_budget_bits` zu
+`loss_budget_bits_estimate` ist ein bewusstes Operator-Signal, dass die
+Groesse ein Proxy ist.
 
 ---
 
@@ -495,12 +509,12 @@ sind nicht Implementierungsdefizite, sondern zukuenftige Forschungsfragen:
 sild_detector.py          sild.core (tragerunabhangig)
   LossPattern (4 Werte)   Korollar A.4
   LossEvent               severity (intrinsic) + effective_severity
-  SILDReport              loss_budget_bits (FM-4 §4.2)
+  SILDReport              loss_budget_bits_estimate (FM-4 §4.2, kategoriale Schaetzung)
   SeverityOverrideConfig  Sigma_eff = o_t o o_d o Sigma_i (FM-4 §2.4)
   _hl7_ce_structured()    FM-4 Def. 2.1 HL7v2
   _fhir_cc_narrowing()    FM-4 Def. 2.1 FHIR
   _build_resolvable_refs() FM-4 Def. 2.4 Bundle-RS
-  compute_loss_budget_bits() FM-4 §4.1
+  compute_loss_budget_bits_estimate() FM-4 §4.1 (kategoriale Schaetzung)
   fhir_audit_events_from_report() FM-4 §5.3
 
 sild_mllp_filter.py       sild.v2.rules

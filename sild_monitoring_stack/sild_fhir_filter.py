@@ -49,7 +49,7 @@ from sild_detector import (
     analyse_fhir_bundle, SILDReport, using_real_cairn,
     SeverityOverrideConfig, apply_severity_overrides,
     fhir_audit_events_from_report,   # M-5
-    compute_loss_budget_bits,        # M-6
+    compute_loss_budget_bits_estimate,        # M-6
 )
 
 # M-8: DE-Basisprofile (optional, FM-4 §3.2)
@@ -106,7 +106,7 @@ if _prom_enabled:
     )
     # M-6: Quantitative Verlust-Metrik (FM-4 §4.1)
     M_LOSS_BUDGET = Histogram(
-        "sild_loss_budget_bits",
+        "sild_loss_budget_bits_estimate",
         "Geschaetzter Informationsverlust in Bit pro Nachricht (FM-4 §4.1)",
         ["protocol", "message_type"],
         buckets=(10, 20, 40, 80, 160, 320, 640),
@@ -263,7 +263,7 @@ class FHIRRequestHandler(BaseHTTPRequestHandler):
                 if de_losses:
                     report.losses.extend(de_losses)
                     report.total_losses += len(de_losses)
-                    report.loss_budget_bits = compute_loss_budget_bits(report.losses)
+                    report.loss_budget_bits_estimate = compute_loss_budget_bits_estimate(report.losses)
             except Exception as e_de:
                 print(f"[SILD-FHIR] DE-Profile error: {e_de}")
 
@@ -329,7 +329,7 @@ class FHIRRequestHandler(BaseHTTPRequestHandler):
                 ).inc()
             # M-6: Verlust-Budget in Bit beobachten (FM-4 §4.1)
             M_LOSS_BUDGET.labels(protocol=PROTOCOL, message_type=mt).observe(
-                report.loss_budget_bits
+                report.loss_budget_bits_estimate
             )
 
         # --- JSONL Audit-Log ---

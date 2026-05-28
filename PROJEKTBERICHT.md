@@ -85,16 +85,25 @@ Der `LossPattern`-Enum ist nicht erweiterungsbedurftig.
 > Der `core`-Layer ist zwischen v2- und FHIR-Sibling **byte-identisch** —
 > direkte Konsequenz aus Theorem 2.5 (Tragerunabhangigkeit).
 
-#### Quantitative Verlust-Metrik (FM-4 Abschnitt 4)
+#### Verlust-Budget-Schaetzung (FM-4 Abschnitt 4)
 
-| Pattern | Formel | Standardwert |
+Die Implementierung liefert eine **kategoriale Groessenordnungs-Schaetzung
+in Bit**, *nicht* eine pro-Nachricht kalibrierte Quantifizierung. Jedes
+Finding traegt einen pro Muster **konstanten** Bit-Wert bei:
+
+| Pattern | Formel | Konstanter Beitrag (fix) |
 |---|---|---|
 | TN: Code -> Text | `L_TN = log2(|T|)` | LOINC: ~16,5 bit |
 | TC: Intervall -> Punkt | `L_TC = log2(Delta_t / delta)` | 1h@60s: ~5,9 bit |
 | AD: Modifier verloren | `L_AD = log2(|Mi|)` | konservativ: 4,0 bit |
 | RS: Referenz unauflosbar | `L_RS approx 24 bit` | konservativ |
 
-Verlust-Budget einer Ubertragung: `B(F) = sum L(fi)`
+Verlust-Budget einer Ubertragung: `B(F) = sum L(fi)`. Die Werte sind als
+Vergleichs- und Trendgroesse brauchbar; empirische Kalibrierung gegen reale
+v2-zu-FHIR-Mappings ist offene Arbeit (FM-4 §8.2). Dies spiegelt sich im
+Feld- und Metriknamen `loss_budget_bits_estimate` (vormals `loss_budget_bits`)
+wieder — ein bewusst gewaehlter Hinweis an den Operator, dass die Zahl ein
+Proxy und keine exakte Messung ist.
 
 #### Operative Aspekte (FM-4 Abschnitt 5)
 
@@ -143,7 +152,7 @@ Zwei parallele Ubertragungspfade werden uberwacht:
 | Def. 2.4 RS | Bundle-Referenz-Auflosbarkeit: `_build_resolvable_refs()` | M-3: vorhanden-unauflosbar vs fehlend |
 | Def. 2.4 RS | ORC-2: Severity info (potenziell unauflosbar) | N-1: kein bestatigtes RS |
 | §2.4 Severity | `SeverityOverrideConfig`: o_tenant o o_default o Sigma_i | K-3: vollstandige Komposition |
-| §4.1 Budget | `LOSS_BITS_PER_PATTERN`, `compute_loss_budget_bits()` | M-6: neu |
+| §4.1 Budget | `LOSS_BITS_PER_PATTERN`, `compute_loss_budget_bits_estimate()` | M-6: neu (kategoriale Schaetzung, pro Muster konstant) |
 | §5.3 Audit | `fhir_audit_events_from_report()` FM-1-Tupel | M-5: neu |
 
 ### 3.2 FM-4 Adapter-Architektur -> Modulstruktur
@@ -327,9 +336,9 @@ Alle Metriken tragen das Label `protocol` (hl7v2 oder fhir_r4):
 | `sild_filter_latency_seconds` | Histogram | Verarbeitungslatenz p50/p95/p99 | — |
 | `sild_active_connections` | Gauge | Aktive MLLP/HTTP-Verbindungen | — |
 | `sild_using_real_cairn` | Gauge | 1 wenn realer Delegations-Aufruf an `cairn.sild` erfolgt; aktuell stets 0 (Plug-in-Slot, kein Delegationspfad) | — |
-| `sild_loss_budget_bits` | Histogram | Verlust-Budget in Bit pro Nachricht (FM-4 §4.1) | NEU M-6 |
+| `sild_loss_budget_bits_estimate` | Histogram | Kategoriale Groessenordnungs-Schaetzung in Bit pro Nachricht; pro Muster konstant, nicht pro Nachricht kalibriert (FM-4 §4.1; §8.2 offen) | NEU M-6 |
 
-Buckets `sild_loss_budget_bits`: (10, 20, 40, 80, 160, 320, 640) bit
+Buckets `sild_loss_budget_bits_estimate`: (10, 20, 40, 80, 160, 320, 640) bit
 
 ---
 
@@ -469,7 +478,9 @@ nicht als Implementierungsanforderungen:
 - **Audit-Qualitat:** FHIR AuditEvent als FM-1-Tupel (M-5); Selektivitat nach
   FM-4 §5.2 (INFO kein Audit-Eintrag)
 - **Mandantenfahigkeit:** Vollstandige 3-Ebenen-Severity-Komposition (K-3)
-- **Quantifizierbar:** Verlust-Budget in Bit (M-6) und Latenz-Monitoring (M-7)
+- **Verlust-Budget-Schaetzung:** Kategoriale Groessenordnung in Bit (M-6) als
+  Vergleichs- und Trendgroesse; empirische Pro-Nachricht-Kalibrierung offen
+  (FM-4 §8.2). Latenz-Monitoring (M-7).
 - **DE-Erweiterbar:** `sild_fhir_profiles_de.py` als eigenstandiger Adapter (M-8)
 - **Testbar:** Mock-Targets mit NAK-Support (N-2) und validen FHIR-Locations (N-3)
 

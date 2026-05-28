@@ -93,7 +93,7 @@ if _prom_enabled:
     )
     # M-6: Quantitative Verlust-Metrik (FM-4 §4.1)
     M_LOSS_BUDGET = Histogram(
-        "sild_loss_budget_bits",
+        "sild_loss_budget_bits_estimate",
         "Geschaetzter Informationsverlust in Bit pro Nachricht (FM-4 §4.1)",
         ["protocol", "message_type"],
         buckets=(10, 20, 40, 80, 160, 320, 640),
@@ -383,7 +383,7 @@ class SILDFilterServer:
                 ).inc()
             # M-6: Verlust-Budget in Bit beobachten (FM-4 §4.1)
             M_LOSS_BUDGET.labels(protocol=PROTOCOL, message_type=mt).observe(
-                report.loss_budget_bits
+                report.loss_budget_bits_estimate
             )
 
         # --- JSONL Audit-Log ---

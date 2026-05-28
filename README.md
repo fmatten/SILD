@@ -143,18 +143,20 @@ docker compose run sild-filter \
     python sild_mllp_filter.py --listen 2575 --mode block-on-critical
 ```
 
-### Quantitative Verlust-Metrik (FM-4 §4)
+### Verlust-Budget-Schätzung (FM-4 §4)
 
-Jede Übertragung erhält ein **Verlust-Budget in Bit** (`B(F) = Σ L(fᵢ)`):
+Jede Übertragung erhält eine **kategoriale Größenordnungs-Schätzung des Informationsverlusts in Bit** (`B(F) = Σ L(fᵢ)`). Die Bit-Beiträge sind **pro Muster konstant**, **nicht pro Nachricht kalibriert**:
 
-| Pattern | Schätzwert |
+| Pattern | Konstanter Beitrag pro Finding |
 |---|---|
-| Type Narrowing | log₂(95 000) ≈ 16,5 bit (LOINC) |
-| Temporal Collapse | log₂(60) ≈ 5,9 bit (1 h bei 60 s Auflösung) |
-| Attribute Dropping | log₂(16) ≈ 4,0 bit (konservativ) |
-| Reference Severing | 24,0 bit (konservativ) |
+| Type Narrowing | log₂(95 000) ≈ 16,5 bit (LOINC-Universum, fix) |
+| Temporal Collapse | log₂(60) ≈ 5,9 bit (1 h bei 60 s Auflösung, fix) |
+| Attribute Dropping | log₂(16) ≈ 4,0 bit (konservativ, fix) |
+| Reference Severing | 24,0 bit (konservativ, fix) |
 
-Prometheus-Metrik: `sild_loss_budget_bits{protocol, message_type}` (Histogram)
+Diese Werte sind als Vergleichs- und Trendgröße brauchbar, **nicht** als absolute Bit-Quantifizierung. Pro-Nachricht-Kalibrierung (Terminologie-Größe, Feld-Spezifität, Bundle-Kontext) ist offene Arbeit (FM-4 §8.2, [Rfc draft v0.2.md](Rfc%20draft%20v0.2.md) §8.1).
+
+Prometheus-Metrik: `sild_loss_budget_bits_estimate{protocol, message_type}` (Histogram)
 
 ### FHIR AuditEvent (FM-4 §5.3)
 
@@ -197,7 +199,7 @@ Alle Metriken tragen das Label `protocol` (`hl7v2` oder `fhir_r4`):
 | `sild_filter_latency_seconds` | Histogram | Verarbeitungslatenz |
 | `sild_active_connections` | Gauge | Aktive Verbindungen |
 | `sild_using_real_cairn` | Gauge | 1 wenn ein realer Delegations-Aufruf an `cairn.sild` erfolgt; aktuell stets 0 (Plug-in-Stelle, kein Delegationspfad) |
-| `sild_loss_budget_bits` | Histogram | Verlust-Budget in Bit pro Nachricht |
+| `sild_loss_budget_bits_estimate` | Histogram | Kategoriale Größenordnungs-Schätzung des Verlust-Budgets in Bit pro Nachricht (pro Muster konstant, nicht pro Nachricht kalibriert) |
 
 ---
 

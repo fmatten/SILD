@@ -10,7 +10,7 @@ FM-4 conformance:
   M-2 — TC FHIR: Alle Prozeduren + Kategorie-basierte Observation-TC-Erkennung (Def. 2.2)
   M-3 — RS: Bundle-Referenz-Auflösbarkeit statt Präsenz-Check (Def. 2.4)
   M-5 — Audit: fhir_audit_events_from_report() als FM-1-konformes Tupel (§5.3)
-  M-6 — Verlust-Budget: compute_loss_budget_bits() / Entropie-Schätzer (§4.1)
+  M-6 — Verlust-Budget: compute_loss_budget_bits_estimate() / Entropie-Schätzer (§4.1)
 
 License: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
 Part of: SILD MLLP Sidecar Demo
@@ -131,7 +131,7 @@ LOSS_BITS_PER_PATTERN: dict = {
 }
 
 
-def compute_loss_budget_bits(losses: list) -> float:
+def compute_loss_budget_bits_estimate(losses: list) -> float:
     """FM-4 §4.2: Verlust-Budget B(F) = Σ L(fi) in Bit."""
     return round(sum(
         LOSS_BITS_PER_PATTERN.get(
@@ -222,7 +222,7 @@ class SILDReport:
     losses:           list  = field(default_factory=list)
     has_critical:     bool  = False
     has_warning:      bool  = False
-    loss_budget_bits: float = 0.0   # FM-4 §4.1 Verlust-Budget in Bit
+    loss_budget_bits_estimate: float = 0.0   # FM-4 §4.1 Verlust-Budget in Bit
 
     def severity_counts(self) -> dict:
         return {
@@ -244,7 +244,7 @@ class SILDReport:
             "control_id":                self.control_id,
             "total_segments":            self.total_segments,
             "total_losses":              self.total_losses,
-            "loss_budget_bits":          round(self.loss_budget_bits, 2),
+            "loss_budget_bits_estimate":          round(self.loss_budget_bits_estimate, 2),
             "severity_counts":           self.severity_counts(),
             "intrinsic_severity_counts": self.intrinsic_severity_counts(),
             "losses": [
@@ -502,7 +502,7 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
         losses=losses,
         has_critical=has_critical,
         has_warning=has_warning,
-        loss_budget_bits=compute_loss_budget_bits(losses),
+        loss_budget_bits_estimate=compute_loss_budget_bits_estimate(losses),
     )
 
 
@@ -713,7 +713,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
         losses=losses,
         has_critical=has_critical,
         has_warning=has_warning,
-        loss_budget_bits=compute_loss_budget_bits(losses),
+        loss_budget_bits_estimate=compute_loss_budget_bits_estimate(losses),
     )
 
 
