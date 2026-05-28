@@ -9,17 +9,29 @@
 
 ## Gesamtstatus
 
-| Kategorie | Ursprunglich | Behoben | Offen |
+| Kategorie | Ursprunglich | Implementiert | Verifikationsstatus |
 |---|---|---|---|
-| KRITISCH | 3 | **3** | 0 |
-| MITTEL | 8 | **8** | 0 |
-| NIEDRIG | 4 | **4** | 0 |
+| KRITISCH (K-1–K-3) | 3 | **3** | siehe automatisierter Vektor-Runner unten |
+| MITTEL (M-1–M-8) | 8 | **8** (M-6 als kategoriale Schaetzung, H5) | siehe automatisierter Vektor-Runner unten |
+| NIEDRIG (N-1–N-4) | 4 | **4** | nicht direkt durch Vektoren abgedeckt |
 | Konform (unverandert) | 5 | -- | -- |
-| **Gesamt behobene Lucken** | **15** | **15** | **0** |
 
-**FM-4-Konformitat nach Behebung: vollstandig** — alle kritischen, mittleren und
-niedrigen Lucken geschlossen. Verbleibende Demo-Infrastruktur-Punkte (N-1 bis N-4)
-sind behoben; offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen markiert.
+**Konformitatsaussage:** Die Test-Vektoren der "SILD Conformance Test Vectors v0.1"
+sind spezifiziert und werden seit Audit-Fix H1(a) durch
+`tests/test_conformance.py` automatisiert gegen `analyse_fhir_bundle()`
+ausgefuehrt. Aktueller Stand (pre-public-baseline + Audit-Fixes Z1/H4/H3/H2/Z2/H5/H1a):
+
+> **13 von 23 Vektoren grün, 10 rot.** Die roten Vektoren zeigen reale
+> semantische Lücken zwischen der Inline-Implementierung und der RFC-Spezifikation
+> (siehe Abschnitt "Automatisierte Vektor-Verifikation" weiter unten).
+
+Eine ältere Version dieses Berichts behauptete "FM-4-Konformitat vollstandig" auf
+Basis von Selbstinspektion ohne Test-Lauf. Diese Behauptung ist mit Audit-Fix
+H1(a) durch eine maschinell prüfbare Aussage ersetzt. Ein "Vollständigkeits"-Status
+ist erst dann legitim, wenn alle Pflicht-Vektoren (positive + negative + edge)
+grün laufen.
+
+Offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen markiert.
 
 ---
 
@@ -30,6 +42,54 @@ sind behoben; offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen 
 | pre-public-baseline | K-1, K-2, K-3 | 2026-05-24 |
 | pre-public-baseline | M-1, M-2, M-3, M-4, M-5, M-6, M-7, M-8 | 2026-05-24 |
 | pre-public-baseline | N-1, N-2, N-3, N-4 | 2026-05-24 |
+| audit-fix Z1/H4/H3/H2/Z2/H5/H1a | Phantom-SHAs, CAIRN-Marketing, Top-Level-Duplikate, toter Code, Repo-URL, Verlust-Budget-Sprache, Vektor-Runner | 2026-05-28 |
+
+---
+
+## Automatisierte Vektor-Verifikation (H1a)
+
+Seit Audit-Fix H1(a) existiert ein YAML-Vektor-Runner unter `tests/` (siehe
+`tests/conformance_vectors.py` und `tests/test_conformance.py`), der die Cases
+aus `SILD Conformance Test Vectors v0.1.md` parst und gegen
+`analyse_fhir_bundle()` ausfuehrt.
+
+Aufruf:
+
+```
+python -m venv .venv && . .venv/bin/activate
+pip install -r tests/requirements.txt
+pytest tests/ -v
+```
+
+**Aktueller Stand (pre-public-baseline + Audit-Fixes, 2026-05-28):**
+
+| Regel | Vektoren | Grün | Rot | Hauptursache der roten Vektoren |
+|---|---|---|---|---|
+| TN-CC-01 (Type Narrowing CodeableConcept) | 7 | 4 | 3 | Detektor emittiert Severity `info` fuer text-only-CC; RFC verlangt `WARNING` |
+| TC-PERIOD-01 (Temporal Collapse Period) | 4 | 2 | 2 | Detektor prueft `Timing.repeat` und Empty-Event-Arrays noch nicht |
+| AD-VAL-01 (Attribute Dropping value) | 6 | 4 | 2 | Detektor prueft "Observation ohne value und ohne dataAbsentReason" nicht |
+| RS-BUNDLE-01 (Reference Severing Bundle) | 6 | 3 | 3 | Detektor emittiert `warning` statt `critical`; keine Aufloesung von `#contained` und `urn:uuid:`-fullUrl-Verweisen |
+| **Gesamt** | **23** | **13** | **10** | |
+
+Die roten Vektoren sind keine Test-Bugs, sondern dokumentieren reale
+**semantische Luecken** zwischen der RFC-Spezifikation und der aktuellen
+Inline-Implementierung. Sie definieren damit auch die naechste Arbeitsliste
+(siehe "Verbleibende offene Punkte" weiter unten).
+
+**Vergleich mit der Aussage vor H1a:** Vor diesem Commit behauptete der Bericht
+"FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit dem Runner
+ist die Aussage zum ersten Mal extern reproduzierbar: 13/23 = 56,5 % der
+spezifizierten Vektoren laufen aktuell grün. Ein "vollstaendig"-Status wird
+erst dann wieder behauptet, wenn alle Pflicht-Vektoren (positive + negative +
+edge) grün sind. Bis dahin: KEIN CI-Badge.
+
+**Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik des Runners ist
+aktuell ressource-stufig (`Observation`), nicht feld-stufig (`Observation.code`).
+Grund: die Detektor-`LossEvent.location` traegt nur `ResourceType/id`. Sobald
+der Detektor feldgenaue Pfade liefert, wechselt der Runner in
+`strict_path=True`-Modus (Schalter in `conformance_vectors.findings_match`).
+
+---
 
 ---
 
@@ -470,24 +530,30 @@ empfohlen (H4).
 
 ### FM-4-Konformitat je Abschnitt
 
-| FM-4-Abschnitt | Anforderung | Status |
-|---|---|---|
-| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Konform (K-1, M-2 FHIR) |
-| Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Konform (K-1, M-2) |
-| Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Konform (K-1, M-1) |
-| Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Konform (K-1, M-3, N-1) |
-| §2.4 Severity-Komposition | Sigma_eff = o_t o o_d o Sigma_i | Konform (K-3) |
-| Korollar A.4 LossPattern-Enum | Genau 4 Werte | Konform |
-| Korollar A.5 core-Layer | Byte-identisch v2/FHIR | Konform |
-| §3.2 Adapter-Architektur | sild.core + v2/fhir/de | Konform (M-8) |
-| §4.1 Entropie-Schatzwerte | L_TN/TC/AD/RS in Bit | Konform (M-6) |
-| §4.2 Verlust-Budget B(F) | Summe pro Nachricht | Konform (M-6) |
-| §5.1 Sentinel-Position | Am Ubertragungspunkt | Konform |
-| §5.2 Block-Mechanik CRITICAL | HTTP 422 / MLLP-NAK-AE | Konform (K-2) |
-| §5.2 Audit-Selektivitat INFO | Kein Audit-Eintrag | Konform (M-4/K-3) |
-| §5.3 FHIR AuditEvent | FM-1-Tupel (t,tau,c,r,m) | Konform (M-5) |
-| §6 Performance p99 < 2ms | Latenz-Monitoring | Konform (M-7) |
-| §3.2 DE-Basisprofile MII/KBV | sild.fhir.profiles_de | Konform (M-8) |
+Hinweis: "Konform" in dieser Tabelle bedeutet "Code-Pfad existiert und wurde in
+Selbstinspektion gegen die FM-4-Definition geprueft" — *nicht* automatisch
+"alle zugehoerigen Conformance-Vektoren laufen gruen". Wo die automatisierte
+Verifikation (H1a) eine Luecke zeigt, ist das in der Spalte "Vektor-Status"
+vermerkt.
+
+| FM-4-Abschnitt | Anforderung | Implementiert | Vektor-Status (H1a) |
+|---|---|---|---|
+| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR | TN-CC-01: 4/7 grün (positive-Severity-Luecke) |
+| Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Code: K-1, M-2 | TC-PERIOD-01: 2/4 grün (Timing.repeat fehlt) |
+| Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Code: K-1, M-1 | AD-VAL-01: 4/6 grün (value/DAR-Pruefung fehlt) |
+| Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Code: K-1, M-3, N-1 | RS-BUNDLE-01: 3/6 grün (Severity + contained/urn:uuid) |
+| §2.4 Severity-Komposition | Sigma_eff = o_t o o_d o Sigma_i | Code: K-3 | (kein Vektor in v0.1) |
+| Korollar A.4 LossPattern-Enum | Genau 4 Werte | Code: vorhanden | (strukturell, kein Vektor) |
+| Korollar A.5 core-Layer | Byte-identisch v2/FHIR | Code: vorhanden | (strukturell, kein Vektor) |
+| §3.2 Adapter-Architektur | sild.core + v2/fhir/de | Code: M-8 | (kein Vektor in v0.1) |
+| §4.1 Entropie-Schatzwerte | L_TN/TC/AD/RS in Bit | Code: M-6 (kategorial, H5) | (kein Vektor in v0.1) |
+| §4.2 Verlust-Budget B(F) | Summe pro Nachricht | Code: M-6 (kategorial, H5) | (kein Vektor in v0.1) |
+| §5.1 Sentinel-Position | Am Ubertragungspunkt | Code: vorhanden | (deployment, kein Vektor) |
+| §5.2 Block-Mechanik CRITICAL | HTTP 422 / MLLP-NAK-AE | Code: K-2 | (Verhaltens-Test, kein Vektor in v0.1) |
+| §5.2 Audit-Selektivitat INFO | Kein Audit-Eintrag | Code: M-4/K-3 | (Verhaltens-Test, kein Vektor in v0.1) |
+| §5.3 FHIR AuditEvent | FM-1-Tupel (t,tau,c,r,m) | Code: M-5 | (kein Vektor in v0.1) |
+| §6 Performance p99 < 2ms | Latenz-Monitoring | Code: M-7 | (Last-Test, kein Vektor) |
+| §3.2 DE-Basisprofile MII/KBV | sild.fhir.profiles_de | Code: M-8 | (kein Vektor in v0.1) |
 
 ### Offene FM-4-Punkte (aus §8 Offene Punkte)
 
