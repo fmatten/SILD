@@ -688,6 +688,34 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     "info",
                 ))
 
+            # --- B1-AD: AD-VAL-01 (RFC §9.2 / Appendix B) ---
+            #   predicate: value.empty() and dataAbsentReason.empty()
+            #   severity:  CRITICAL
+            # value[x] ist ein FHIR-Choice-Type — irgendeine der valueQuantity/
+            # valueString/...-Varianten erfuellt `value.exists()`. Component-
+            # basierte Observations (z.B. Blutdruck) tragen Werte nur in den
+            # components; deren Anwesenheit erfuellt die AD-VAL-01-Anforderung
+            # (RFC §5.3 edge.component-without-value.notes — Implementierungen
+            # MUST entweder component-Anwesenheit als Erfuellung werten oder
+            # das False-Positive dokumentieren; wir waehlen Variante 1).
+            has_value_x = any(
+                resource.get(f) is not None for f in (
+                    "valueQuantity", "valueString", "valueBoolean",
+                    "valueCodeableConcept", "valueRatio", "valueInteger",
+                    "valueRange", "valueSampledData", "valueTime",
+                    "valueDateTime", "valuePeriod", "valueAttachment",
+                )
+            )
+            has_dar        = bool(resource.get("dataAbsentReason"))
+            has_components = bool(resource.get("component"))
+            if not has_value_x and not has_dar and not has_components:
+                losses.append(LossEvent(
+                    LossPattern.ATTRIBUTE_DROPPING, loc,
+                    f"Observation hat weder value[x] noch dataAbsentReason — "
+                    f"Wert verloren (AD-VAL-01, RFC §9.2)",
+                    "critical",
+                ))
+
         elif rtype == "Procedure":
             codings    = resource.get("code", {}).get("coding", [])
             code_value = codings[0].get("code", "") if codings else ""
