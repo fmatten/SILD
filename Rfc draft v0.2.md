@@ -355,9 +355,18 @@ Ein SILD-konformer FHIR-Adapter MUSS mindestens diese vier Regeln enthalten, je 
 | `AD-VAL-01`    | AD      | `Observation.value.empty() and Observation.dataAbsentReason.empty()` | CRITICAL |
 | `RS-BUNDLE-01` | RS      | `Bundle.entry.resource.reference` nicht leer und im Bundle nicht auflösbar | CRITICAL |
 
-Ein SILD-konformer HL7-v2-Adapter MUSS analog mindestens vier Regeln enthalten, eine pro Pattern, mit Prädikaten in Segment-/Feld-Notation.
+Ein SILD-konformer HL7-v2-Adapter MUSS analog mindestens diese vier Regeln enthalten, je eine pro Pattern, mit Prädikaten in Segment-/Feld-Notation:
 
-Test-Vektoren zur Validierung dieser Regeln werden der finalen Fassung dieser Spezifikation beigegeben (Anhang B enthält Beispiel-Eingaben und erwartete Ausgaben).
+| Regel-ID      | Pattern | Prädikat (HL7-v2 Segment-/Feldnotation)                       | Severity |
+| ------------- | ------- | ------------------------------------------------------------- | -------- |
+| `TN-CE-01`    | TN      | OBR-4 oder OBX-3 (CE/CWE): Komponente 2 (Text) nicht leer UND Komponente 1 (Identifier) leer UND Komponente 3 (Name of Coding System) leer | WARNING  |
+| `TC-OBR-01`   | TC      | OBR-7 (Observation Date/Time) und OBR-8 (Observation End Date/Time) beide nicht leer und OBR-7 ≠ OBR-8 (Intervall im Quellsegment, Kollaps auf Zeitpunkt im FHIR-Ziel) | WARNING  |
+| `AD-OBX-01`   | AD      | OBX-2 (Value Type) ∈ {NM, NA, SN, NR} UND OBX-15 (Producer's ID) leer UND OBX-16 (Responsible Observer) leer (Mess-/Geräteprovenienz für numerischen Wert verloren) | CRITICAL |
+| `RS-ORC-01`   | RS      | ORC-2 (Placer Order Number) nicht leer (Referenz auf externes ServiceRequest, im Ziel ohne Mapping potenziell unauflösbar) | CRITICAL |
+
+**Cross-Carrier-Severity-Prinzip.** Die intrinsischen Severities pro Pattern sind über die Träger hinweg gleich (`TN → WARNING`, `TC → WARNING`, `AD → CRITICAL`, `RS → CRITICAL`). Das v2-Minimum spiegelt diese Pattern-Severity, auch wenn das v2-Prädikat strukturell schwächer ist als sein FHIR-Pendant (`AD-OBX-01` testet Provenienzverlust auf einem numerischen Wert statt fehlenden Wert; `RS-ORC-01` testet Referenzpräsenz statt verifizierte Bundle-Unauflösbarkeit). Implementierungen, die diese Strenge nicht tragen wollen, MÜSSEN die Schwächung in der Override-Schichtung (§4.4) sichtbar machen, nicht in der intrinsischen Severity.
+
+Test-Vektoren zur Validierung dieser Regeln liegen als Companion-Dokumente vor (`SILD Conformance Test Vectors v0.1.md` für FHIR, `SILD Conformance Test Vectors v2 v0.1.md` für HL7 v2).
 
 ## 9.3 Architekturanforderungen
 
