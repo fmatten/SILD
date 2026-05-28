@@ -580,8 +580,8 @@ vermerkt.
 | §4.1 Entropie-Schatzwerte | L_TN/TC/AD/RS in Bit | Code: M-6 (kategorial, H5) | (kein Vektor in beiden v0.1-Saetzen) |
 | §4.2 Verlust-Budget B(F) | Summe pro Nachricht | Code: M-6 (kategorial, H5) | (kein Vektor in beiden v0.1-Saetzen) |
 | §5.1 Sentinel-Position | Am Ubertragungspunkt | Code: vorhanden | (deployment, kein Vektor) |
-| §5.2 Block-Mechanik CRITICAL | HTTP 422 / MLLP-NAK-AE | Code: K-2 | (Verhaltens-Test, kein Vektor in v0.1) |
-| §5.2 Audit-Selektivitat INFO | Kein Audit-Eintrag | Code: M-4/K-3 | (Verhaltens-Test, kein Vektor in v0.1) |
+| §5.2 Block-Mechanik CRITICAL | HTTP 422 / MLLP-NAK-AE | Code: K-2 | (Verhaltens-Test, kein Vektor in beiden v0.1-Saetzen) |
+| §5.2 Audit-Selektivitat INFO | Kein Audit-Eintrag | Code: M-4/K-3 | (Verhaltens-Test, kein Vektor in beiden v0.1-Saetzen) |
 | §5.3 FHIR AuditEvent | FM-1-Tupel (t,tau,c,r,m) | Code: M-5 | (kein Vektor in beiden v0.1-Saetzen) |
 | §6 Performance p99 < 2ms | Latenz-Monitoring | Code: M-7 | (Last-Test, kein Vektor) |
 | §3.2 DE-Basisprofile MII/KBV | sild.fhir.profiles_de | Code: M-8 | (kein Vektor in beiden v0.1-Saetzen) |
