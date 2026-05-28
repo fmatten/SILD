@@ -38,7 +38,7 @@ def _ids(vec: Vector) -> str:
 def test_conformance_vector(vector: Vector) -> None:
     report = sild_detector.analyse_fhir_bundle(vector.bundle)
     actual  = detector_findings_for_rule(report, vector.rule)
-    ok, why = findings_match(actual, vector.expected_findings)
+    ok, why = findings_match(actual, vector.expected_findings, bundle=vector.bundle)
     assert ok, (
         f"Vector {vector.test_id} ({vector.category}) did not match:\n"
         f"  rule:        {vector.rule}\n"

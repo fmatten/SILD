@@ -131,8 +131,29 @@ def _resource_type_from_location(loc: str) -> str:
     return loc.split("/", 1)[0] if "/" in loc else loc
 
 
-def _vector_resource_type_from_path(path: str) -> str:
-    """vector path is 'ResourceType.field' or 'ResourceType.field.subfield'."""
+_BUNDLE_ENTRY_PREFIX = re.compile(r"^Bundle\.entry\[(\d+)\]\.resource(\.|$)")
+
+
+def _vector_resource_type_from_path(path: str, bundle: Optional[dict] = None) -> str:
+    """
+    Translate a vector path to the containing resource type.
+
+    Three syntaxes:
+      1. 'ResourceType' or 'ResourceType.field[.subfield...]'
+            -> first segment, e.g. 'Observation'
+      2. 'Bundle.entry[N].resource[.field...]' (used by RS-BUNDLE-01 vectors)
+            -> look up bundle.entry[N].resource.resourceType
+               (still resource-level; not field-level)
+      3. anything else
+            -> the path itself
+    """
+    m = _BUNDLE_ENTRY_PREFIX.match(path)
+    if m and bundle is not None:
+        idx = int(m.group(1))
+        try:
+            return bundle["entry"][idx]["resource"]["resourceType"]
+        except (KeyError, IndexError, TypeError):
+            return "Bundle"
     return path.split(".", 1)[0] if "." in path else path
 
 
@@ -171,13 +192,19 @@ def findings_match(
     expected: list[dict],
     *,
     strict_path: bool = False,
+    bundle: Optional[dict] = None,
 ) -> tuple[bool, str]:
     """
     Compare actual vs expected findings, order-insensitive.
+
     Path comparison is currently RESOURCE-LEVEL by default: the detector
-    locates findings at 'ResourceType/id', while vectors say
-    'ResourceType.field'. We compare only the resource-type prefix. Set
-    strict_path=True once the detector tracks field-level paths.
+    locates findings at 'ResourceType/id', while vectors describe paths in
+    one of two syntaxes — 'ResourceType.field' or
+    'Bundle.entry[N].resource.field' (the latter used by RS-BUNDLE-01).
+    The `bundle` argument lets us resolve the second syntax to the actual
+    containing resource type; both syntaxes still compare at the
+    resource-type granularity. Set strict_path=True once the detector
+    tracks field-level paths (deliberate roadmap, not part of B1).
     """
     if len(actual) != len(expected):
         return False, (
@@ -187,7 +214,7 @@ def findings_match(
 
     remaining = list(actual)
     for exp in expected:
-        exp_rt = _vector_resource_type_from_path(exp.get("path", ""))
+        exp_rt = _vector_resource_type_from_path(exp.get("path", ""), bundle)
         for i, act in enumerate(remaining):
             if act["pattern"] != exp["pattern"]:
                 continue

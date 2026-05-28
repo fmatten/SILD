@@ -656,6 +656,10 @@ input:
         contained:
           - resourceType: Practitioner
             id: prac-1
+    - fullUrl: Patient/p-001
+      resource:
+        resourceType: Patient
+        id: p-001
 expected_findings:
   - rule_id: RS-BUNDLE-01
     pattern: RS
@@ -664,6 +668,12 @@ expected_findings:
 notes: |
   A `#anchor` reference resolves only against the same resource's
   `contained[]` list. Here `#enc-1` is not the id of any contained entry.
+
+  Patient/p-001 is included as a separate bundle entry (entry[1]) so the
+  subject reference resolves in-bundle, focusing the test purely on the
+  contained-anchor failure. Otherwise a strict per-reference RS-BUNDLE-01
+  implementation would necessarily emit two findings (subject + encounter)
+  for two unresolved references, contradicting the single expected finding.
 ```
 
 ### 6.2 Negative Cases

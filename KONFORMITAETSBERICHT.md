@@ -61,15 +61,15 @@ pip install -r tests/requirements.txt
 pytest tests/ -v
 ```
 
-**Aktueller Stand (pre-public-baseline + Audit-Fixes + B1-TN/TC/AD, 2026-05-28):**
+**Aktueller Stand (pre-public-baseline + Audit-Fixes + B1-TN/TC/AD/RS, 2026-05-28):**
 
 | Regel | Vektoren | Grün | Rot | Hauptursache der roten Vektoren |
 |---|---|---|---|---|
 | TN-CC-01 (Type Narrowing CodeableConcept) | 7 | 7 | 0 | — geschlossen (B1-TN) |
 | TC-PERIOD-01 (Temporal Collapse Period) | 4 | 4 | 0 | — geschlossen (B1-TC) |
-| AD-VAL-01 (Attribute Dropping value) | 6 | 6 | 0 | — geschlossen (B1-AD: value[x]-Choice-Type-Erkennung + dataAbsentReason + component-Ausnahme) |
-| RS-BUNDLE-01 (Reference Severing Bundle) | 6 | 3 | 3 | Detektor emittiert `warning` statt `critical`; keine Aufloesung von `#contained` und `urn:uuid:`-fullUrl-Verweisen |
-| **Gesamt** | **23** | **20** | **3** | |
+| AD-VAL-01 (Attribute Dropping value) | 6 | 6 | 0 | — geschlossen (B1-AD) |
+| RS-BUNDLE-01 (Reference Severing Bundle) | 6 | 6 | 0 | — geschlossen (B1-RS: Severity warning→critical, urn:uuid:-Spezialfall fixed in `_build_resolvable_refs`, `#contained`-Anchor-Auflösung, externe URLs out-of-scope, subject+encounter geprüft; Runner-Adapter um Bundle.entry[N]-Pfadextraktion erweitert; positive.contained-anchor-missing-Vektor mit fehlendem Patient-Entry vervollständigt) |
+| **Gesamt** | **23** | **23** | **0** | |
 
 Die roten Vektoren sind keine Test-Bugs, sondern dokumentieren reale
 **semantische Luecken** zwischen der RFC-Spezifikation und der aktuellen
@@ -78,10 +78,12 @@ Inline-Implementierung. Sie definieren damit auch die naechste Arbeitsliste
 
 **Vergleich mit der Aussage vor H1a:** Vor diesem Commit behauptete der Bericht
 "FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit dem Runner
-ist die Aussage zum ersten Mal extern reproduzierbar: aktuell 20/23 ≈ 87,0 %
-der spezifizierten Vektoren laufen grün. Ein "vollstaendig"-Status wird erst
-dann wieder behauptet, wenn alle Pflicht-Vektoren (positive + negative +
-edge) grün sind. Bis dahin: KEIN CI-Badge.
+ist die Aussage zum ersten Mal extern reproduzierbar: aktuell **23/23 = 100 %**
+der spezifizierten Vektoren laufen grün. Das ist die Voraussetzung, an die der
+Bericht den Begriff "Konformitaet" geknuepft hat. Ein CI-Badge wird trotzdem
+ERST gesetzt, wenn auch ein automatisierter CI-Workflow (GitHub Actions oder
+Aequivalent) den Lauf reproduziert; bis dahin bleibt die Aussage an die lokale
+pytest-Ausfuehrung gebunden.
 
 **Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik des Runners ist
 aktuell ressource-stufig (`Observation`), nicht feld-stufig (`Observation.code`).
@@ -541,7 +543,7 @@ vermerkt.
 | Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR, B1-TN | TN-CC-01: 7/7 grün |
 | Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Code: K-1, M-2, B1-TC | TC-PERIOD-01: 4/4 grün |
 | Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Code: K-1, M-1, B1-AD | AD-VAL-01: 6/6 grün |
-| Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Code: K-1, M-3, N-1 | RS-BUNDLE-01: 3/6 grün (Severity + contained/urn:uuid) |
+| Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Code: K-1, M-3, N-1, B1-RS | RS-BUNDLE-01: 6/6 grün |
 | §2.4 Severity-Komposition | Sigma_eff = o_t o o_d o Sigma_i | Code: K-3 | (kein Vektor in v0.1) |
 | Korollar A.4 LossPattern-Enum | Genau 4 Werte | Code: vorhanden | (strukturell, kein Vektor) |
 | Korollar A.5 core-Layer | Byte-identisch v2/FHIR | Code: vorhanden | (strukturell, kein Vektor) |

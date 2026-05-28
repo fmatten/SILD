@@ -541,49 +541,82 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
 
 def _build_resolvable_refs(entries: list) -> set:
     """
-    M-3: Baut die Menge aller im Bundle auflösbaren Referenzen auf.
-    Enthält: ResourceType/id (relativ) und fullUrl (absolut/urn:uuid:).
+    M-3 + B1-RS: Auflösbare Adressen eines transaction Bundles.
+
+    Per FHIR R4 §3.2.5.7.1:
+      - Eintrag mit fullUrl = `urn:uuid:...` oder `urn:oid:...`
+            -> NUR die `urn:` adressiert; die ResourceType/id-Form ist
+               KEINE Alternativadresse.
+      - Eintrag mit fullUrl = absolute/relative typed reference
+            -> sowohl fullUrl als auch ResourceType/id sind adressierbar.
+      - Eintrag ohne fullUrl
+            -> Fallback ResourceType/id.
+
+    Diese Praezisierung schaltet RS-BUNDLE-01.edge.fullurl-uuid-vs-typed-
+    reference scharf, ohne andere Faelle zu treffen.
     """
     refs: set = set()
     for entry in entries:
-        res      = entry.get("resource", {})
-        rtype_i  = res.get("resourceType", "")
-        rid_i    = res.get("id", "")
-        full_url = entry.get("fullUrl", "")
-        if rtype_i and rid_i:
-            refs.add(f"{rtype_i}/{rid_i}")
+        full_url = entry.get("fullUrl", "") or ""
         if full_url:
             refs.add(full_url)
+        if not full_url.startswith("urn:"):
+            res     = entry.get("resource", {})
+            rtype_i = res.get("resourceType", "")
+            rid_i   = res.get("id", "")
+            if rtype_i and rid_i:
+                refs.add(f"{rtype_i}/{rid_i}")
     return refs
 
 
 def _rs_check_reference(
-    resolvable: set, ref_field: dict, loc: str, field_name: str
+    resolvable: set,
+    ref_field,
+    loc: str,
+    field_name: str,
+    contained_ids: Optional[set] = None,
 ) -> Optional[LossEvent]:
     """
-    M-3 FM-4 Def. 2.4: Prüft eine einzelne FHIR-Referenz.
-    Vorhanden + unauflösbar → warning RS
-    Fehlend → info RS (möglicher Kontext-Verlust)
+    FM-4 Def. 2.4 / RFC §9.2 RS-BUNDLE-01: literale FHIR-Referenz pruefen.
+
+    Feuert (CRITICAL) genau dann, wenn `ref_field.reference` ein literaler
+    relativer Verweis ist, der weder im Bundle noch -- bei `#anchor`-Form --
+    in der `contained[]`-Liste der gleichen Ressource aufloesbar ist.
+
+    Folgende Faelle sind explizit KEIN RS-BUNDLE-01:
+      - Feld fehlt komplett oder ist kein dict
+      - `reference` fehlt / ist leer (identifier-only-Reference)
+      - absolute URL (http:// oder https://) -- ausserhalb des Bundle-Scopes,
+        RFC §6.3 edge.external-reference-allowed
+      - `#anchor`-Form, die in `contained_ids` existiert
     """
     if not isinstance(ref_field, dict):
         return None
     ref = ref_field.get("reference", "")
-    if ref:
-        if ref not in resolvable:
-            return LossEvent(
-                LossPattern.REFERENCE_SEVERED, loc,
-                f"{field_name}-Referenz '{ref}' formal vorhanden, aber nicht im Bundle "
-                f"auflösbar — phi(r'i) leer (FM-4 Def. 2.4, M-3)",
-                "warning",
-            )
-        return None  # vorhanden und auflösbar — kein Verlust
-    else:
+    if not ref:
+        # identifier-only oder Feld komplett ohne reference -- nicht RS-BUNDLE-01.
+        return None
+    if ref.startswith("http://") or ref.startswith("https://"):
+        # Absolute externe URL -- RS-BUNDLE-01 feuert nicht (RFC §6.3 Edge).
+        return None
+    if ref.startswith("#"):
+        anchor = ref[1:]
+        if contained_ids and anchor in contained_ids:
+            return None
         return LossEvent(
             LossPattern.REFERENCE_SEVERED, loc,
-            f"Kein {field_name}-Feld vorhanden; klinischer Kontext möglicherweise verloren "
-            f"(FM-4 Def. 2.4, M-3)",
-            "info",
+            f"{field_name}-Referenz '{ref}' loest gegen kein contained[]-id "
+            f"der gleichen Ressource auf (RS-BUNDLE-01, RFC §9.2)",
+            "critical",
         )
+    if ref in resolvable:
+        return None
+    return LossEvent(
+        LossPattern.REFERENCE_SEVERED, loc,
+        f"{field_name}-Referenz '{ref}' nicht im Bundle auflösbar "
+        f"(RS-BUNDLE-01, RFC §9.2)",
+        "critical",
+    )
 
 
 # ===========================================================================
@@ -662,14 +695,18 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     "info",
                 ))
 
-            # --- M-3: Reference Severing — Encounter-Auflösbarkeit ---
-            enc_event = _rs_check_reference(
-                resolvable_refs,
-                resource.get("encounter"),   # None wenn Feld fehlt
-                loc, "encounter",
-            )
-            if enc_event:
-                losses.append(enc_event)
+            # --- M-3 + B1-RS: Reference Severing — RS-BUNDLE-01 (RFC §9.2) ---
+            obs_contained_ids = {
+                c.get("id") for c in (resource.get("contained") or [])
+                if isinstance(c, dict) and c.get("id")
+            }
+            for fname in ("subject", "encounter"):
+                ev = _rs_check_reference(
+                    resolvable_refs, resource.get(fname),
+                    loc, fname, obs_contained_ids,
+                )
+                if ev:
+                    losses.append(ev)
 
             # --- Reference Severing: Labor ohne basedOn ---
             if primary_cat == "laboratory" and "basedOn" not in resource:
@@ -774,14 +811,18 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     ))
 
         elif rtype == "Condition":
-            # M-3: Encounter-Auflösbarkeit
-            enc_event = _rs_check_reference(
-                resolvable_refs,
-                resource.get("encounter"),
-                loc, "encounter",
-            )
-            if enc_event:
-                losses.append(enc_event)
+            # M-3 + B1-RS: Reference Severing — RS-BUNDLE-01 (RFC §9.2)
+            cond_contained_ids = {
+                c.get("id") for c in (resource.get("contained") or [])
+                if isinstance(c, dict) and c.get("id")
+            }
+            for fname in ("subject", "encounter"):
+                ev = _rs_check_reference(
+                    resolvable_refs, resource.get(fname),
+                    loc, fname, cond_contained_ids,
+                )
+                if ev:
+                    losses.append(ev)
 
             # B1-TN: TN-CC-01 fuer Condition.code (RFC §9.2)
             cond_code_cc = resource.get("code", {})
