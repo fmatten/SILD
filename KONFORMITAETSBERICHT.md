@@ -61,15 +61,15 @@ pip install -r tests/requirements.txt
 pytest tests/ -v
 ```
 
-**Aktueller Stand (pre-public-baseline + Audit-Fixes, 2026-05-28):**
+**Aktueller Stand (pre-public-baseline + Audit-Fixes + B1-TN, 2026-05-28):**
 
 | Regel | Vektoren | Grün | Rot | Hauptursache der roten Vektoren |
 |---|---|---|---|---|
-| TN-CC-01 (Type Narrowing CodeableConcept) | 7 | 4 | 3 | Detektor emittiert Severity `info` fuer text-only-CC; RFC verlangt `WARNING` |
+| TN-CC-01 (Type Narrowing CodeableConcept) | 7 | 7 | 0 | — geschlossen (B1-TN: Severity an RFC TN-CC-01 angeglichen, Detector um Condition.code + Condition.bodySite[i] erweitert) |
 | TC-PERIOD-01 (Temporal Collapse Period) | 4 | 2 | 2 | Detektor prueft `Timing.repeat` und Empty-Event-Arrays noch nicht |
 | AD-VAL-01 (Attribute Dropping value) | 6 | 4 | 2 | Detektor prueft "Observation ohne value und ohne dataAbsentReason" nicht |
 | RS-BUNDLE-01 (Reference Severing Bundle) | 6 | 3 | 3 | Detektor emittiert `warning` statt `critical`; keine Aufloesung von `#contained` und `urn:uuid:`-fullUrl-Verweisen |
-| **Gesamt** | **23** | **13** | **10** | |
+| **Gesamt** | **23** | **16** | **7** | |
 
 Die roten Vektoren sind keine Test-Bugs, sondern dokumentieren reale
 **semantische Luecken** zwischen der RFC-Spezifikation und der aktuellen
@@ -78,9 +78,9 @@ Inline-Implementierung. Sie definieren damit auch die naechste Arbeitsliste
 
 **Vergleich mit der Aussage vor H1a:** Vor diesem Commit behauptete der Bericht
 "FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit dem Runner
-ist die Aussage zum ersten Mal extern reproduzierbar: 13/23 = 56,5 % der
-spezifizierten Vektoren laufen aktuell grün. Ein "vollstaendig"-Status wird
-erst dann wieder behauptet, wenn alle Pflicht-Vektoren (positive + negative +
+ist die Aussage zum ersten Mal extern reproduzierbar: aktuell 16/23 ≈ 69,6 %
+der spezifizierten Vektoren laufen grün. Ein "vollstaendig"-Status wird erst
+dann wieder behauptet, wenn alle Pflicht-Vektoren (positive + negative +
 edge) grün sind. Bis dahin: KEIN CI-Badge.
 
 **Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik des Runners ist
@@ -538,7 +538,7 @@ vermerkt.
 
 | FM-4-Abschnitt | Anforderung | Implementiert | Vektor-Status (H1a) |
 |---|---|---|---|
-| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR | TN-CC-01: 4/7 grün (positive-Severity-Luecke) |
+| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR, B1-TN | TN-CC-01: 7/7 grün |
 | Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Code: K-1, M-2 | TC-PERIOD-01: 2/4 grün (Timing.repeat fehlt) |
 | Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Code: K-1, M-1 | AD-VAL-01: 4/6 grün (value/DAR-Pruefung fehlt) |
 | Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Code: K-1, M-3, N-1 | RS-BUNDLE-01: 3/6 grün (Severity + contained/urn:uuid) |

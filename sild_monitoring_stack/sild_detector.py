@@ -81,19 +81,48 @@ def _hl7_ce_structured(ce_field: str) -> tuple:
 
 
 def _fhir_cc_narrowing(cc: dict) -> tuple:
-    """FM-4 Def. 2.1: CodeableConcept auf Type Narrowing analysieren."""
-    codings = cc.get("coding", [])
-    text    = cc.get("text", "")
+    """
+    FM-4 Def. 2.1: CodeableConcept auf Type Narrowing analysieren.
+
+    Returns (is_narrowed, reason, severity).
+
+    Two distinct cases, with different severities:
+
+      1. RFC §9.2 TN-CC-01 (text-only, coding empty/missing AND text present)
+         -> severity 'warning'. This is the normative case.
+
+      2. Heuristik (coding mit konkretem code, aber System nicht in LOINC/
+         SNOMED/ICD/ATC) -> severity 'info'. Nicht von TN-CC-01 erfasst,
+         als ergaenzende Erkennung gefuehrt.
+
+    FHIRPath-Semantik: `coding.empty()` ist wahr fuer fehlende UND fuer
+    leere Arrays; `text.exists()` ist falsch fuer fehlende Felder UND fuer
+    den leeren String. Beide Faelle werden hier konsistent gehandhabt.
+    """
+    codings = cc.get("coding", []) or []
+    text    = cc.get("text", "") or ""
+    # Case 1: RFC TN-CC-01 — coding.empty() and text.exists()
     if not codings and text:
-        return True, f"CodeableConcept nur .text ('{text[:50]}') ohne .coding"
+        return (
+            True,
+            f"CodeableConcept .coding leer/fehlt und .text vorhanden "
+            f"('{text[:50]}') (TN-CC-01, RFC §9.2)",
+            "warning",
+        )
+    # Case 2: Heuristik — coding hat code, aber kein anerkanntes System
     if codings:
         systems      = {c.get("system", "") for c in codings}
-        has_specific  = bool(systems & FHIR_SPECIFIC_SYSTEMS)
-        has_code      = any(bool(c.get("code", "")) for c in codings)
+        has_specific = bool(systems & FHIR_SPECIFIC_SYSTEMS)
+        has_code     = any(bool(c.get("code", "")) for c in codings)
         if has_code and not has_specific:
             slist = ", ".join(s for s in systems if s) or "(kein System)"
-            return True, f"Coding-System '{slist}' nicht in LOINC/SNOMED/ICD"
-    return False, ""
+            return (
+                True,
+                f"Coding-System '{slist}' nicht in LOINC/SNOMED/ICD/ATC "
+                f"(Heuristik, nicht TN-CC-01)",
+                "info",
+            )
+    return False, "", ""
 
 
 # ===========================================================================
@@ -616,12 +645,12 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
 
             # --- K-1: Type Narrowing — CodeableConcept-Analyse (FM-4 Def. 2.1) ---
             code_cc = resource.get("code", {})
-            is_narrowed, tn_reason = _fhir_cc_narrowing(code_cc)
+            is_narrowed, tn_reason, tn_severity = _fhir_cc_narrowing(code_cc)
             if is_narrowed:
                 losses.append(LossEvent(
                     LossPattern.TYPE_NARROWING, loc,
                     f"Observation.code: {tn_reason} (FM-4 Def. 2.1)",
-                    "info",
+                    tn_severity,
                 ))
             elif primary_cat in GENERIC_FHIR_CATEGORIES and any(
                 kw in disp for disp in code_displays for kw in SPECIFIC_LAB_KEYWORDS
@@ -629,7 +658,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.TYPE_NARROWING, loc,
                     f"Kategorie '{primary_cat}' generisch; spezifischer Subtyp im Code "
-                    f"(FM-4 Def. 2.1)",
+                    f"(FM-4 Def. 2.1, Heuristik)",
                     "info",
                 ))
 
@@ -702,6 +731,26 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
             )
             if enc_event:
                 losses.append(enc_event)
+
+            # B1-TN: TN-CC-01 fuer Condition.code (RFC §9.2)
+            cond_code_cc = resource.get("code", {})
+            is_narrowed, tn_reason, tn_severity = _fhir_cc_narrowing(cond_code_cc)
+            if is_narrowed:
+                losses.append(LossEvent(
+                    LossPattern.TYPE_NARROWING, loc,
+                    f"Condition.code: {tn_reason} (FM-4 Def. 2.1)",
+                    tn_severity,
+                ))
+
+            # B1-TN: TN-CC-01 fuer jeden Condition.bodySite[i] (RFC §9.2)
+            for i, bs in enumerate(resource.get("bodySite", []) or []):
+                is_narrowed, tn_reason, tn_severity = _fhir_cc_narrowing(bs)
+                if is_narrowed:
+                    losses.append(LossEvent(
+                        LossPattern.TYPE_NARROWING, loc,
+                        f"Condition.bodySite[{i}]: {tn_reason} (FM-4 Def. 2.1)",
+                        tn_severity,
+                    ))
 
     has_critical = any(l.effective_severity == "critical" for l in losses)
     has_warning  = any(l.effective_severity == "warning"  for l in losses)
