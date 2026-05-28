@@ -527,19 +527,21 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                 ))
 
         elif seg_type == "ORC":
-            orc_2 = f[2] if len(f) > 2 else ""
+            # --- B2-RS: RS-ORC-01 — Placer-Order-Referenz (RFC §9.2) ---
+            #   Praedikat: ORC-2 (Placer Order Number) nicht leer (literale
+            #              Cross-System-Referenz auf ein ServiceRequest;
+            #              Aufloesbarkeit im Ziel nicht garantiert).
+            #   Severity:  CRITICAL (Cross-Carrier-Severity RS = CRITICAL).
+            # Whitespace-only ORC-2 zaehlt als leer (kein konkreter Verweis).
+            orc_2 = (f[2] if len(f) > 2 else "").strip()
             if orc_2:
-                # N-1 Fix: ORC-2 vorhanden ist kein bestätigtes RS (warning),
-                # sondern ein potenzielles RS (info): die Referenz kann im Ziel
-                # unauflösbar sein, muss aber nicht. FM-4 Def. 2.4 verlangt,
-                # dass die Referenz im Ziel formal vorhanden aber unauflösbar ist —
-                # das kann erst beim empfangenden System geprüft werden.
                 losses.append(LossEvent(
                     LossPattern.REFERENCE_SEVERED, f"ORC/{orc_2}",
                     f"ORC-2 (Placer Order Number '{orc_2}') vorhanden — "
-                    f"ohne ServiceRequest-Mapping im Zielsystem potenziell unauflösbar "
-                    f"(FM-4 Def. 2.4, N-1)",
-                    "info",
+                    f"literale Referenz auf externes ServiceRequest, "
+                    f"Aufloesbarkeit im Zielsystem nicht verifiziert "
+                    f"(RS-ORC-01, RFC §9.2)",
+                    "critical",
                 ))
 
         elif seg_type == "PV1":
