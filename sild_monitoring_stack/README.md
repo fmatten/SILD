@@ -296,6 +296,6 @@ sild-fhir-filter:
 
 Der Filter postet auf `<forward-url>/fhir/Bundle` bzw. `<forward-url>/Bundle`.
 
-### CAIRN-FHIR-Adapter
+### CAIRN-Plug-in-Slot (Roadmap)
 
-Sobald CAIRN als Python-Paket installiert ist, schaltet der FHIR-Filter — wie der MLLP-Filter — automatisch auf die produktive `cairn.sild.SILDDetector`-Implementierung um, die intern den `cairn.fhir_r4`-Adapter nutzt.
+In `sild_detector.py` wird `cairn.sild.SILDDetector` als Plug-in-Slot vorgehalten (try/except-Import). Dieser Slot ist bewusst **nicht** verkabelt: solange `cairn.sild` nicht freigegeben und mit Test belegt ist, bleibt der Inline-Detektor die einzige aktive Engine, und die Gauge `sild_using_real_cairn` meldet stets 0. Ein automatisches Umschalten auf eine "produktive" Implementierung passiert daher derzeit nicht.

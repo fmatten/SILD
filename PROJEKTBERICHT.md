@@ -330,7 +330,7 @@ Alle Metriken tragen das Label `protocol` (hl7v2 oder fhir_r4):
 | `sild_forward_decisions_total` | Counter | Weiterleitungsentscheidungen | — |
 | `sild_filter_latency_seconds` | Histogram | Verarbeitungslatenz p50/p95/p99 | — |
 | `sild_active_connections` | Gauge | Aktive MLLP/HTTP-Verbindungen | — |
-| `sild_using_real_cairn` | Gauge | 1 wenn CAIRN-Paket verfugbar | — |
+| `sild_using_real_cairn` | Gauge | 1 wenn realer Delegations-Aufruf an `cairn.sild` erfolgt; aktuell stets 0 (Plug-in-Slot, kein Delegationspfad) | — |
 | `sild_loss_budget_bits` | Histogram | Verlust-Budget in Bit pro Nachricht (FM-4 §4.1) | NEU M-6 |
 
 Buckets `sild_loss_budget_bits`: (10, 20, 40, 80, 160, 320, 640) bit
@@ -479,8 +479,11 @@ nicht als Implementierungsanforderungen:
 
 ### Verbleibende Verbesserungsfelder
 
-- **CAIRN-Integration:** Inline-Detector ist Fallback; produktive Accuracy
-  erfordert das CAIRN Python-Paket (FM-2)
+- **CAIRN-Delegation:** Es existiert ein Plug-in-Slot (`RealSILD` in
+  `sild_detector.py`), aber kein verkabelter Delegationspfad. Solange
+  `cairn.sild` nicht freigegeben ist, ist die Inline-Engine die einzige
+  aktive Implementierung; eine "höhere Accuracy durch CAIRN" wird
+  ausdrücklich NICHT zugesichert.
 - **TLS:** Kein TLS/mTLS auf MLLP (klinischer Standard fur Produktionsbetrieb)
 - **Retry-Logik:** Kein Exponential Backoff bei Forward-Fehlern
 - **Tests:** Keine formalen Unit-Tests (manuelle Verifikation via Load-Generator)

@@ -87,7 +87,8 @@ if _prom_enabled:
     )
     M_BACKEND = Gauge(
         "sild_using_real_cairn",
-        "1 wenn produktive cairn.sild verwendet wird, 0 fuer Inline-Fallback",
+        "1 wenn ein realer Delegations-Aufruf an cairn.sild erfolgt; "
+        "aktuell stets 0 (Plug-in-Stelle, kein Delegationspfad implementiert)",
         ["protocol"],
     )
     # M-6: Quantitative Verlust-Metrik (FM-4 §4.1)

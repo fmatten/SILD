@@ -413,20 +413,22 @@ issues.append({"severity": "information", "location": location, ...})
 
 **Datei:** `requirements.txt`
 
-**Problem:** `cairn`-Paket wird in `sild_detector.py` optional importiert,
-fehlte aber in `requirements.txt`. Auch `prometheus_client` war ohne
-Versionsangabe oder Kommentar aufgefuhrt.
+**Problem:** `prometheus_client` war ohne Versionsangabe oder Kommentar
+aufgefuhrt. Zusaetzlich wurde `cairn` zunaechst als kommentierte optionale
+Abhaengigkeit gefuhrt, obwohl im Code kein Delegations-Pfad existiert (H4).
 
-**Losung (pre-public-baseline):**
+**Losung (pre-public-baseline + H4):**
 
 ```
 prometheus_client>=0.19.0          # Pflicht
-# cairn>=1.0.0                     # Optional: FM-4 primary detector
-# DE-Basisprofile: kein Zusatzpaket notig
+# Hinweis: cairn-Plug-in-Slot in sild_detector.py NICHT verkabelt — daher
+# bewusst keine optionale Abhaengigkeit. DE-Basisprofile: kein Zusatzpaket.
 ```
 
-Pflichtabhangigkeit mit Mindestversion explizit dokumentiert; optionale CAIRN-
-Abhangigkeit als kommentierte Zeile mit Hinweis auf FM-4 primary detector.
+Pflichtabhangigkeit mit Mindestversion explizit dokumentiert. CAIRN-Hinweis
+aus `requirements.txt` entfernt: solange `cairn.sild` nicht freigegeben und
+nicht in `analyse_*` verkabelt ist, wird sie nicht als nutzbare Option
+empfohlen (H4).
 
 ---
 

@@ -23,11 +23,16 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
+# Roadmap-Slot: optionaler Delegations-Pfad an cairn.sild.SILDDetector.
+# Der Import wird vorgehalten, ist aber bewusst NICHT verkabelt. Solange kein
+# realer Delegations-Aufruf in analyse_hl7_message / analyse_fhir_bundle
+# existiert, ist der Inline-Detektor die einzige aktive Engine. using_real_cairn()
+# bleibt deshalb stets False — bloße Paket-Anwesenheit ist kein Signal.
 try:
-    from cairn.sild import SILDDetector as RealSILD  # type: ignore
-    _USING_CAIRN = True
+    from cairn.sild import SILDDetector as RealSILD  # noqa: F401  # type: ignore
+    _CAIRN_PACKAGE_PRESENT = True
 except ImportError:
-    _USING_CAIRN = False
+    _CAIRN_PACKAGE_PRESENT = False
 
 
 # ===========================================================================
@@ -716,4 +721,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
 
 
 def using_real_cairn() -> bool:
-    return _USING_CAIRN
+    # Aktuell stets False: der Import-Hook (RealSILD) ist reserviert, aber kein
+    # Delegationspfad implementiert. Die Backend-Gauge soll deshalb 0 melden —
+    # bloße Paket-Anwesenheit ist explizit KEIN Signal aktiver Nutzung.
+    return False

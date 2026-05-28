@@ -196,7 +196,7 @@ Alle Metriken tragen das Label `protocol` (`hl7v2` oder `fhir_r4`):
 | `sild_forward_decisions_total` | Counter | Weiterleitungsentscheidungen |
 | `sild_filter_latency_seconds` | Histogram | Verarbeitungslatenz |
 | `sild_active_connections` | Gauge | Aktive Verbindungen |
-| `sild_using_real_cairn` | Gauge | 1 wenn CAIRN-Paket aktiv |
+| `sild_using_real_cairn` | Gauge | 1 wenn ein realer Delegations-Aufruf an `cairn.sild` erfolgt; aktuell stets 0 (Plug-in-Stelle, kein Delegationspfad) |
 | `sild_loss_budget_bits` | Histogram | Verlust-Budget in Bit pro Nachricht |
 
 ---
@@ -266,11 +266,7 @@ sild_monitoring_stack/
 - Docker Engine 20+ und Docker Compose v2
 - Freie Ports: 2575, 2576, 8080, 8081, 9090, 9100, 9101, 3000
 
-Optional für höhere Erkennungsgenauigkeit:
-
-```
-cairn>=1.0.0   # FM-2 Referenzimplementierung — codeberg.org/iscad/cairn
-```
+Die Inline-Engine in `sild_detector.py` ist aktuell die einzige aktive Detektor-Implementierung. Im Quellcode existiert ein vorgehaltener Plug-in-Slot für `cairn.sild.SILDDetector` (Roadmap, FM-2); dieser ist bewusst _nicht_ verkabelt und wird hier deshalb auch nicht als Abhängigkeit empfohlen.
 
 ---
 
