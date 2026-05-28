@@ -509,16 +509,21 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                         "warning",
                     ))
 
-            # --- Attribute Dropping (FM-4 Def. 2.3, M-1) ---
-            # Nur bei gerätemessbaren Typen (NM/NA/SN/NR oder unbekannt)
-            # TX/FT/ST = manuelle Texteingabe → kein AD bei fehlender Device-Info
-            if not obx_15 and not obx_16 and obx_2 not in OBX_TEXT_TYPES:
+            # --- B2-AD: AD-OBX-01 — Mess-/Geraeteprovenienz (RFC §9.2) ---
+            #   Praedikat: OBX-2 ∈ {NM, NA, SN, NR} (numerisch, geraete-
+            #              messbar) UND OBX-15 (Producer's ID) leer UND
+            #              OBX-16 (Responsible Observer) leer.
+            #   Severity:  CRITICAL (Cross-Carrier-Severity AD = CRITICAL).
+            # Unbekannte OBX-2-Typen feuern bewusst NICHT (konservativ);
+            # nur explizit numerische Typen tragen die Provenienzanforderung.
+            if obx_2 in OBX_NUMERIC_TYPES and not obx_15 and not obx_16:
                 losses.append(LossEvent(
                     LossPattern.ATTRIBUTE_DROPPING, f"OBX/{obx_id}",
-                    f"OBX-2={obx_2 or '?'} (device-messbar): "
-                    f"OBX-15/16 (Device/Observer) fehlen — "
-                    f"Mess-Provenienz nicht propagierbar (FM-4 Def. 2.3, M-1)",
-                    "info",
+                    f"OBX-2={obx_2} (numerisch, geraete-messbar): "
+                    f"OBX-15 (Producer's ID) und OBX-16 (Responsible "
+                    f"Observer) fehlen — Mess-Provenienz nicht propagierbar "
+                    f"(AD-OBX-01, RFC §9.2)",
+                    "critical",
                 ))
 
         elif seg_type == "ORC":
