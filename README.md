@@ -282,7 +282,12 @@ Implementierungsstand der 15 identifizierten K/M/N-Lücken:
 | Mittel (M-1–M-8) | 8 | ✓ 8 (M-6 als kategoriale Schätzung, siehe `loss_budget_bits_estimate`) |
 | Niedrig (N-1–N-4) | 4 | ✓ 4 |
 
-**Automatisierte Verifikation:** Die [SILD Conformance Test Vectors v0.1](SILD%20Conformance%20Test%20Vectors%20v0.1.md) werden seit Audit-Fix H1(a) durch `tests/test_conformance.py` automatisch gegen `analyse_fhir_bundle()` ausgeführt. **Aktueller Stand: 23/23 der spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2, v0.1, FHIR-Adapter) grün — lokal via pytest, externe CI-Reproduktion ausstehend. Ein CI-Badge wird erst nach einem automatisierten CI-Lauf gesetzt.**
+**Automatisierte Verifikation:** Beide Trägerformate sind über getrennte Vektor-Sätze verifiziert:
+
+- **FHIR-Adapter** ([Test Vectors v0.1](SILD%20Conformance%20Test%20Vectors%20v0.1.md), Runner `tests/test_conformance.py`): **23/23** der spezifizierten Vektoren (RFC §9.2, FHIR-Adapter) grün — lokal via pytest.
+- **HL7-v2-Adapter** ([Test Vectors v2 v0.1](SILD%20Conformance%20Test%20Vectors%20v2%20v0.1.md), Runner `tests/test_conformance_v2.py`): **21/21** der spezifizierten Vektoren (RFC §9.2, v2-Adapter) grün — lokal via pytest.
+
+Beide Carrier vollabgedeckt im Mindest-Regelsatz (Stand B2). Externe CI-Reproduktion ausstehend; ein CI-Badge wird erst nach einem automatisierten CI-Lauf gesetzt.
 
 Aufruf des Runners:
 
@@ -343,7 +348,8 @@ Werkzeug für Datenqualitäts-Monitoring — keine klinische Entscheidungssoftwa
 | [INHALT.md](INHALT.md) | Dokumentationspaket-Übersicht |
 | [Rfc draft v0.2.md](Rfc%20draft%20v0.2.md) | RFC-Entwurf v0.2 (DE) |
 | [Rfc draft v0.2_en.md](Rfc%20draft%20v0.2_en.md) | RFC draft v0.2 (EN) |
-| [SILD Conformance Test Vectors v0.1.md](SILD%20Conformance%20Test%20Vectors%20v0.1.md) | Konformitätstestfälle v0.1 |
+| [SILD Conformance Test Vectors v0.1.md](SILD%20Conformance%20Test%20Vectors%20v0.1.md) | Konformitätstestfälle v0.1 (FHIR-Adapter) |
+| [SILD Conformance Test Vectors v2 v0.1.md](SILD%20Conformance%20Test%20Vectors%20v2%20v0.1.md) | Konformitätstestfälle v2 v0.1 (HL7-v2-Adapter) |
 | [RELEASE_NOTES_v1.0.0.md](RELEASE_NOTES_v1.0.0.md) | Release Notes v1.0.0 |
 | [CHANGELOG.md](CHANGELOG.md) | Änderungshistorie |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Beitragsrichtlinien |

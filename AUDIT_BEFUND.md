@@ -12,16 +12,18 @@
 ## Status der Behebung (Closure)
 
 **Closure-Datum:** 2026-05-28
-**Closure-Releases:** [v1.0.5 — Audit-Fix-Bundle](https://github.com/fmatten/SILD/releases/tag/v1.0.5) (Kategorie-A-Fixes) · [v1.0.6 — B1: Conformance-Vektoren 23/23](https://github.com/fmatten/SILD/releases/tag/v1.0.6)
-**Closure-Range:** `58e8ce27..7f7ce3d`
+**Closure-Releases:** [v1.0.5 — Audit-Fix-Bundle](https://github.com/fmatten/SILD/releases/tag/v1.0.5) (Kategorie-A-Fixes) · [v1.0.6 — B1: Conformance-Vektoren FHIR 23/23](https://github.com/fmatten/SILD/releases/tag/v1.0.6) · B2 — Conformance-Vektoren v2 21/21 (lokaler Stand 2026-05-28, vor Tag)
+**Closure-Range:** `58e8ce27..HEAD` (post-B2)
 
 > **Nachtrag (v1.0.6).** Die zum v1.0.5-Stand noch offenen Conformance-Vektoren wurden im B1-Paket geschlossen: Alle **23/23 der spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2, v0.1, FHIR-Adapter) laufen lokal grün** — durch RFC-konforme Anhebungen des Detektors, ohne Vektoren oder Spezifikation zu schwächen. Offen bleiben bewusst nur die externe CI-Reproduktion samt Badge (H1 b) und die feldgenaue Pfad-Granularität.
+
+> **Nachtrag (B2).** Der HL7-v2-Carrier ist mit dem B2-Paket auf den gleichen maschinell prüfbaren Stand wie der FHIR-Adapter gebracht: RFC §9.2 wurde um eine parallele v2-Regeltabelle erweitert (`TN-CE-01`, `TC-OBR-01`, `AD-OBX-01`, `RS-ORC-01`), Companion-Dokument `SILD Conformance Test Vectors v2 v0.1.md` mit 21 Vektoren, und ein eigener Runner (`tests/test_conformance_v2.py` gegen `analyse_hl7_message()`). IST-Stand pre-B2: 11/21 grün — danach drei RFC-konforme Detektor-Anhebungen pro Regelgruppe (TN: Prädikat-Inversion + OBX-3-Coverage + Severity INFO→WARNING; AD: Prädikat auf `NUMERIC_TYPES` verengt + Severity INFO→CRITICAL; RS: Whitespace-Strip + Severity INFO→CRITICAL). Endstand: **21/21 v2-Vektoren grün, lokal** — bei unverändertem FHIR-Baseline 23/23. Beide Carrier sind damit vektor-vollabgedeckt im Mindest-Regelsatz. Die Roadmap-Punkte H1 b (externe CI-Reproduktion + Badge) und feldgenaue Pfad-Granularität bleiben unverändert offen.
 
 Übersicht je Hypothese — Detail in der Befund-Tabelle, Spalte „Closure":
 
 | # | Hypothese (Kurz) | Closure | Commit |
 |---|---|---|---|
-| H1 | Keine Tests / kein CI | **TEILWEISE GESCHLOSSEN** — Runner steht; mit v1.0.6 alle 23/23 der spezifizierten Vektoren grün (lokal); externe CI-Reproduktion + Badge bewusst Roadmap (kein Badge ohne CI-Lauf) | `132fa70` / `7f7ce3d` |
+| H1 | Keine Tests / kein CI | **TEILWEISE GESCHLOSSEN** — beide Carrier-Runner stehen; FHIR 23/23 grün ab v1.0.6, v2 21/21 grün ab B2 (jeweils lokal); externe CI-Reproduktion + Badge bewusst Roadmap (kein Badge ohne CI-Lauf) | `132fa70` / `7f7ce3d` / B2-Bundle |
 | H2 | „Struktur statt Keywords" halb zutreffend | **GESCHLOSSEN** — ungenutzter Code entfernt, verbleibende Heuristik im Bericht offengelegt | `8dcc690` |
 | H3 | Redundante Dateien mit Drift | **GESCHLOSSEN** — 5 Top-Level-Dateien entfernt (878 Zeilen) | `090f425` |
 | H4 | Alternativer Engine-Hook nicht verkabelt | **TEILWEISE GESCHLOSSEN** — Genauigkeits-Aussagen entfernt + Gauge entkoppelt; echte CAIRN-Delegation bewusst Roadmap | `df53001` |

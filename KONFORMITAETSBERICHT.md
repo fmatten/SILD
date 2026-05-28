@@ -16,15 +16,23 @@
 | NIEDRIG (N-1–N-4) | 4 | **4** | nicht direkt durch Vektoren abgedeckt |
 | Konform (unverandert) | 5 | -- | -- |
 
-**Konformitatsaussage:** Die Test-Vektoren der "SILD Conformance Test Vectors v0.1"
-sind spezifiziert und werden seit Audit-Fix H1(a) durch
-`tests/test_conformance.py` automatisiert gegen `analyse_fhir_bundle()`
-ausgefuehrt. Aktueller Stand (pre-public-baseline + Audit-Fixes Z1/H4/H3/H2/Z2/H5/H1a):
+**Konformitatsaussage:** Beide Trägerformate sind über je einen Vektor-Satz
+verifiziert. FHIR-Vektoren ("SILD Conformance Test Vectors v0.1") laufen seit
+Audit-Fix H1(a) durch `tests/test_conformance.py` gegen `analyse_fhir_bundle()`;
+HL7-v2-Vektoren ("SILD Conformance Test Vectors v2 v0.1") laufen seit dem
+B2-Paket durch `tests/test_conformance_v2.py` gegen `analyse_hl7_message()`.
+Aktueller Stand (pre-public-baseline + Audit-Fixes Z1/H4/H3/H2/Z2/H5/H1a +
+B1 + B2):
 
-> **23 von 23 Vektoren grün** (B1-Paket abgeschlossen mit v1.0.6). Die zuvor
-> roten Vektoren wurden durch RFC-konforme Detector-Anhebungen geschlossen,
-> ohne Vektoren oder Spec zu schwächen (Detail-Tabelle und Closure-Commits
-> siehe Abschnitt "Automatisierte Vektor-Verifikation" weiter unten).
+> **FHIR-Adapter: 23/23 der spezifizierten Vektoren (RFC §9.2, FHIR-Tabelle)
+> grün, lokal.**
+> **HL7-v2-Adapter: 21/21 der spezifizierten Vektoren (RFC §9.2, v2-Tabelle)
+> grün, lokal.**
+>
+> Beide Carrier vektor-vollabgedeckt im Mindest-Regelsatz. Die zuvor roten
+> Vektoren wurden durch RFC-konforme Detector-Anhebungen geschlossen, ohne
+> Vektoren oder Spec zu schwächen (Detail-Tabellen und Closure-Commits siehe
+> Abschnitt "Automatisierte Vektor-Verifikation" weiter unten).
 
 Eine ältere Version dieses Berichts behauptete "FM-4-Konformitat vollstandig" auf
 Basis von Selbstinspektion ohne Test-Lauf. Diese Behauptung ist mit Audit-Fix
@@ -44,17 +52,24 @@ Offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen markiert.
 | pre-public-baseline | M-1, M-2, M-3, M-4, M-5, M-6, M-7, M-8 | 2026-05-24 |
 | pre-public-baseline | N-1, N-2, N-3, N-4 | 2026-05-24 |
 | audit-fix Z1/H4/H3/H2/Z2/H5/H1a | Phantom-SHAs, CAIRN-Marketing, Top-Level-Duplikate, toter Code, Repo-URL, Verlust-Budget-Sprache, Vektor-Runner | 2026-05-28 |
+| B1-TN/TC/AD/RS | FHIR-Vektoren 13→23/23 grün (TN-CC-01, TC-PERIOD-01, AD-VAL-01, RS-BUNDLE-01) | 2026-05-28 |
+| B2-Infra + B2-TN/AD/RS | HL7-v2-Vektorset + Runner aufgesetzt; v2-Vektoren 11→21/21 grün (TN-CE-01, AD-OBX-01, RS-ORC-01) | 2026-05-28 |
 
 ---
 
-## Automatisierte Vektor-Verifikation (H1a)
+## Automatisierte Vektor-Verifikation (H1a + B2)
 
-Seit Audit-Fix H1(a) existiert ein YAML-Vektor-Runner unter `tests/` (siehe
-`tests/conformance_vectors.py` und `tests/test_conformance.py`), der die Cases
-aus `SILD Conformance Test Vectors v0.1.md` parst und gegen
-`analyse_fhir_bundle()` ausfuehrt.
+Seit Audit-Fix H1(a) bzw. dem B2-Paket existieren zwei YAML-Vektor-Runner
+unter `tests/`, je einer pro Trägerformat:
 
-Aufruf:
+- **FHIR-Adapter:** `tests/conformance_vectors.py` + `tests/test_conformance.py`
+  parsen `SILD Conformance Test Vectors v0.1.md` und treiben
+  `analyse_fhir_bundle()`.
+- **HL7-v2-Adapter:** `tests/conformance_vectors_v2.py` +
+  `tests/test_conformance_v2.py` parsen `SILD Conformance Test Vectors v2 v0.1.md`
+  und treiben `analyse_hl7_message()`.
+
+Aufruf (deckt beide Carrier in einem Lauf ab):
 
 ```
 python -m venv .venv && . .venv/bin/activate
@@ -62,7 +77,7 @@ pip install -r tests/requirements.txt
 pytest tests/ -v
 ```
 
-**Aktueller Stand (pre-public-baseline + Audit-Fixes + B1-TN/TC/AD/RS, 2026-05-28):**
+**Aktueller Stand FHIR-Adapter (pre-public-baseline + Audit-Fixes + B1-TN/TC/AD/RS, 2026-05-28):**
 
 | Regel | Vektoren | Grün | Rot | Hauptursache der roten Vektoren |
 |---|---|---|---|---|
@@ -70,28 +85,40 @@ pytest tests/ -v
 | TC-PERIOD-01 (Temporal Collapse Period) | 4 | 4 | 0 | — geschlossen (B1-TC) |
 | AD-VAL-01 (Attribute Dropping value) | 6 | 6 | 0 | — geschlossen (B1-AD) |
 | RS-BUNDLE-01 (Reference Severing Bundle) | 6 | 6 | 0 | — geschlossen (B1-RS: Severity warning→critical, urn:uuid:-Spezialfall fixed in `_build_resolvable_refs`, `#contained`-Anchor-Auflösung, externe URLs out-of-scope, subject+encounter geprüft; Runner-Adapter um Bundle.entry[N]-Pfadextraktion erweitert; positive.contained-anchor-missing-Vektor mit fehlendem Patient-Entry vervollständigt) |
-| **Gesamt** | **23** | **23** | **0** | |
+| **Gesamt FHIR** | **23** | **23** | **0** | |
 
-Die roten Vektoren sind keine Test-Bugs, sondern dokumentieren reale
-**semantische Luecken** zwischen der RFC-Spezifikation und der aktuellen
-Inline-Implementierung. Sie definieren damit auch die naechste Arbeitsliste
-(siehe "Verbleibende offene Punkte" weiter unten).
+**Aktueller Stand HL7-v2-Adapter (B2-Infra + B2-TN/AD/RS, 2026-05-28):**
 
-**Vergleich mit der Aussage vor H1a:** Vor diesem Commit behauptete der Bericht
-"FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit dem Runner
-ist die Aussage zum ersten Mal extern reproduzierbar: aktuell **23/23 = 100 %
-der spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2,
-FHIR-Adapter)** laufen grün. Das ist die Voraussetzung, an die der Bericht den
-Begriff "Konformitaet" geknuepft hat. Ein CI-Badge wird trotzdem ERST gesetzt,
-wenn auch ein automatisierter CI-Workflow (GitHub Actions oder Aequivalent)
-den Lauf reproduziert; bis dahin bleibt die Aussage an die lokale
-pytest-Ausfuehrung gebunden.
+| Regel | Vektoren | Grün | Rot | Hauptursache der roten Vektoren |
+|---|---|---|---|---|
+| TN-CE-01 (Type Narrowing CE/CWE) | 6 | 6 | 0 | — geschlossen (B2-TN: Praedikat-Inversion OBR-4, OBX-3 ergaenzt, Severity INFO→WARNING) |
+| TC-OBR-01 (Temporal Collapse OBR-7/8) | 4 | 4 | 0 | — bereits grün gegen Baseline (kein Code-Fix) |
+| AD-OBX-01 (Attribute Dropping OBX-15/16) | 6 | 6 | 0 | — geschlossen (B2-AD: Praedikat auf `obx_2 in NUMERIC_TYPES` verengt, Severity INFO→CRITICAL) |
+| RS-ORC-01 (Reference Severing ORC-2) | 5 | 5 | 0 | — geschlossen (B2-RS: Whitespace-Strip in ORC-2, Severity INFO→CRITICAL) |
+| **Gesamt v2** | **21** | **21** | **0** | |
 
-**Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik des Runners ist
-aktuell ressource-stufig (`Observation`), nicht feld-stufig (`Observation.code`).
-Grund: die Detektor-`LossEvent.location` traegt nur `ResourceType/id`. Sobald
-der Detektor feldgenaue Pfade liefert, wechselt der Runner in
-`strict_path=True`-Modus (Schalter in `conformance_vectors.findings_match`).
+Die roten Vektoren waren keine Test-Bugs, sondern reale **semantische Luecken**
+zwischen der RFC-Spezifikation und der jeweiligen Detektor-Implementierung.
+Sie wurden in beiden Trägern carrier-spezifisch RFC-konform geschlossen.
+
+**Vergleich mit der Aussage vor H1a:** Vor H1a behauptete der Bericht
+"FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit den Runnern
+ist die Aussage carrier-skopiert reproduzierbar: aktuell **23/23 = 100 % der
+spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2,
+FHIR-Adapter)** und **21/21 = 100 % (RFC §9.2, HL7-v2-Adapter)** laufen lokal
+grün. Das ist die Voraussetzung, an die der Bericht den Begriff "Konformitaet"
+geknuepft hat. Ein CI-Badge wird trotzdem ERST gesetzt, wenn auch ein
+automatisierter CI-Workflow (GitHub Actions oder Aequivalent) den Lauf
+reproduziert; bis dahin bleibt die Aussage an die lokale pytest-Ausfuehrung
+gebunden.
+
+**Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik ist aktuell
+ressource-stufig fuer FHIR (`Observation` statt `Observation.code`) und
+segment-stufig fuer v2 (`OBR` statt `OBR-4`). Grund: die
+Detektor-`LossEvent.location` traegt nur `ResourceType/id` bzw.
+`Segment/<id>`. Sobald der Detektor feld-/komponentengenaue Pfade liefert,
+wechseln beide Runner in `strict_path=True`-Modus (Schalter in
+`findings_match`). Beide Carrier teilen damit dieselbe Granularitaets-Roadmap.
 
 ---
 
@@ -540,24 +567,24 @@ Selbstinspektion gegen die FM-4-Definition geprueft" — *nicht* automatisch
 Verifikation (H1a) eine Luecke zeigt, ist das in der Spalte "Vektor-Status"
 vermerkt.
 
-| FM-4-Abschnitt | Anforderung | Implementiert | Vektor-Status (H1a) |
+| FM-4-Abschnitt | Anforderung | Implementiert | Vektor-Status (H1a + B2) |
 |---|---|---|---|
-| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR, B1-TN | TN-CC-01: 7/7 grün |
-| Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Code: K-1, M-2, B1-TC | TC-PERIOD-01: 4/4 grün |
-| Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Code: K-1, M-1, B1-AD | AD-VAL-01: 6/6 grün |
-| Def. 2.4 Reference Severing | Bundle-Auflosbarkeit | Code: K-1, M-3, N-1, B1-RS | RS-BUNDLE-01: 6/6 grün |
-| §2.4 Severity-Komposition | Sigma_eff = o_t o o_d o Sigma_i | Code: K-3 | (kein Vektor in v0.1) |
+| Def. 2.1 Type Narrowing | Terminologie-Strukturerkennung | Code: K-1, M-2 FHIR, B1-TN, B2-TN | FHIR TN-CC-01: 7/7 grün · v2 TN-CE-01: 6/6 grün |
+| Def. 2.2 Temporal Collapse | dim t(e) > dim t(e'') | Code: K-1, M-2, B1-TC | FHIR TC-PERIOD-01: 4/4 grün · v2 TC-OBR-01: 4/4 grün |
+| Def. 2.3 Attribute Dropping | Modifier-Verlust-Check | Code: K-1, M-1, B1-AD, B2-AD | FHIR AD-VAL-01: 6/6 grün · v2 AD-OBX-01: 6/6 grün |
+| Def. 2.4 Reference Severing | Bundle- bzw. Order-Auflosbarkeit | Code: K-1, M-3, N-1, B1-RS, B2-RS | FHIR RS-BUNDLE-01: 6/6 grün · v2 RS-ORC-01: 5/5 grün |
+| §2.4 Severity-Komposition | Sigma_eff = o_t o o_d o Sigma_i | Code: K-3 | (kein Vektor in beiden v0.1-Saetzen) |
 | Korollar A.4 LossPattern-Enum | Genau 4 Werte | Code: vorhanden | (strukturell, kein Vektor) |
-| Korollar A.5 core-Layer | Byte-identisch v2/FHIR | Code: vorhanden | (strukturell, kein Vektor) |
-| §3.2 Adapter-Architektur | sild.core + v2/fhir/de | Code: M-8 | (kein Vektor in v0.1) |
-| §4.1 Entropie-Schatzwerte | L_TN/TC/AD/RS in Bit | Code: M-6 (kategorial, H5) | (kein Vektor in v0.1) |
-| §4.2 Verlust-Budget B(F) | Summe pro Nachricht | Code: M-6 (kategorial, H5) | (kein Vektor in v0.1) |
+| Korollar A.5 core-Layer | Byte-identisch v2/FHIR | Code: vorhanden | (strukturell; beide Carrier seit B2 vektor-abgedeckt) |
+| §3.2 Adapter-Architektur | sild.core + v2/fhir/de | Code: M-8 | FHIR: 23/23 grün · v2: 21/21 grün (seit B2) |
+| §4.1 Entropie-Schatzwerte | L_TN/TC/AD/RS in Bit | Code: M-6 (kategorial, H5) | (kein Vektor in beiden v0.1-Saetzen) |
+| §4.2 Verlust-Budget B(F) | Summe pro Nachricht | Code: M-6 (kategorial, H5) | (kein Vektor in beiden v0.1-Saetzen) |
 | §5.1 Sentinel-Position | Am Ubertragungspunkt | Code: vorhanden | (deployment, kein Vektor) |
 | §5.2 Block-Mechanik CRITICAL | HTTP 422 / MLLP-NAK-AE | Code: K-2 | (Verhaltens-Test, kein Vektor in v0.1) |
 | §5.2 Audit-Selektivitat INFO | Kein Audit-Eintrag | Code: M-4/K-3 | (Verhaltens-Test, kein Vektor in v0.1) |
-| §5.3 FHIR AuditEvent | FM-1-Tupel (t,tau,c,r,m) | Code: M-5 | (kein Vektor in v0.1) |
+| §5.3 FHIR AuditEvent | FM-1-Tupel (t,tau,c,r,m) | Code: M-5 | (kein Vektor in beiden v0.1-Saetzen) |
 | §6 Performance p99 < 2ms | Latenz-Monitoring | Code: M-7 | (Last-Test, kein Vektor) |
-| §3.2 DE-Basisprofile MII/KBV | sild.fhir.profiles_de | Code: M-8 | (kein Vektor in v0.1) |
+| §3.2 DE-Basisprofile MII/KBV | sild.fhir.profiles_de | Code: M-8 | (kein Vektor in beiden v0.1-Saetzen) |
 
 ### Offene FM-4-Punkte (aus §8 Offene Punkte)
 

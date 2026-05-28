@@ -21,6 +21,9 @@
 |---|---|
 | `PROJEKTBERICHT.md` | Vollständiger Projektbericht v3.0: theoretische Grundlagen, Implementierungsübersicht, Architektur, Verlustmuster, Prometheus-Metriken, FM-4-Konformitätsanalyse |
 | `KONFORMITAETSBERICHT.md` | Detaillierter Konformitätsbericht v3.0: alle 15 Lücken (K/M/N) mit Originaldefund, Lösung und Code-Snippets; FM-4-§-Konformitätstabelle |
+| `Rfc draft v0.2.md` / `Rfc draft v0.2_en.md` | RFC-Entwurf (DE/EN) inkl. §9.2 Minimum-Rule-Set (FHIR + HL7 v2) |
+| `SILD Conformance Test Vectors v0.1.md` | Normative Vektoren FHIR-Adapter (Runner: `tests/test_conformance.py`) |
+| `SILD Conformance Test Vectors v2 v0.1.md` | Normative Vektoren HL7-v2-Adapter (Runner: `tests/test_conformance_v2.py`) |
 
 ---
 
@@ -32,6 +35,10 @@
 | MITTEL (M-1–M-8) | 8 | 8 | pre-public-baseline |
 | NIEDRIG (N-1–N-4) | 4 | 4 | pre-public-baseline |
 | **Gesamt** | **15** | **15** | — |
+
+**Vektor-Verifikation (lokal, RFC §9.2 Mindest-Regelsatz):**
+- FHIR-Adapter: 23/23 grün (B1, v1.0.6)
+- HL7-v2-Adapter: 21/21 grün (B2, lokaler Stand 2026-05-28)
 
 **Verbleibend (FM-4 §8 — selbst als offene Forschungsfragen markiert):**
 - §8.1 Subadditive Aggregation
