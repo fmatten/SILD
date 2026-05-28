@@ -2,7 +2,7 @@
 **Version:** 3.0  
 **Datum:** 2026-05-26  
 **Autor:** Friedhelm Matten / ISCaD GmbH  
-**Git-Stand:** `739ad0d` — Lizenz AGPL-3.0-only OR Commercial, DOI 10.5281/zenodo.20391260
+**Git-Stand:** pre-public-baseline — Lizenz AGPL-3.0-only OR Commercial, DOI 10.5281/zenodo.20391260
 
 ---
 
@@ -28,9 +28,9 @@
 
 | Kategorie | Lücken | Behoben | Commits |
 |---|---|---|---|
-| KRITISCH (K-1–K-3) | 3 | 3 | `ae012a2` |
-| MITTEL (M-1–M-8) | 8 | 8 | `fbf2fa3` |
-| NIEDRIG (N-1–N-4) | 4 | 4 | `f185c28` |
+| KRITISCH (K-1–K-3) | 3 | 3 | pre-public-baseline |
+| MITTEL (M-1–M-8) | 8 | 8 | pre-public-baseline |
+| NIEDRIG (N-1–N-4) | 4 | 4 | pre-public-baseline |
 | **Gesamt** | **15** | **15** | — |
 
 **Verbleibend (FM-4 §8 — selbst als offene Forschungsfragen markiert):**

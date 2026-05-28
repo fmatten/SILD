@@ -3,7 +3,7 @@
 **Erstellt:** 2026-05-24 | **Aktualisiert:** 2026-05-24  
 **Autor:** Friedhelm Matten / ISCaD GmbH  
 **Verzeichnis:** `/home/iscad/SILD`  
-**Git-Stand:** `f185c28` (alle Lucken behoben: K-1–K-3, M-1–M-8, N-1–N-4)
+**Git-Stand:** pre-public-baseline (vor Erst-Veröffentlichung auf github.com/fmatten/SILD; Pre-Squash-SHAs nicht reproduzierbar)
 
 ---
 

@@ -3,7 +3,7 @@
 **Erstellt:** 2026-05-24 | **Aktualisiert:** 2026-05-24  
 **Grundlage:** FM-4 *Signal-Loss Inspection at Data-boundaries* (Matten, Mai 2026)  
 **Analysierte Codebasis:** `/home/iscad/SILD/sild_monitoring_stack/`  
-**Git-Stand:** `f185c28` (Fix N-1 bis N-4)
+**Git-Stand:** pre-public-baseline (vor Erst-Veröffentlichung auf github.com/fmatten/SILD; Pre-Squash-SHAs nicht reproduzierbar)
 
 ---
 
@@ -27,9 +27,9 @@ sind behoben; offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen 
 
 | Commit | Behoben | Datum |
 |---|---|---|
-| `ae012a2` | K-1, K-2, K-3 | 2026-05-24 |
-| `fbf2fa3` | M-1, M-2, M-3, M-4, M-5, M-6, M-7, M-8 | 2026-05-24 |
-| `f185c28` | N-1, N-2, N-3, N-4 | 2026-05-24 |
+| pre-public-baseline | K-1, K-2, K-3 | 2026-05-24 |
+| pre-public-baseline | M-1, M-2, M-3, M-4, M-5, M-6, M-7, M-8 | 2026-05-24 |
+| pre-public-baseline | N-1, N-2, N-3, N-4 | 2026-05-24 |
 
 ---
 
@@ -43,7 +43,7 @@ sind behoben; offene FM-4-Punkte (§8) sind in FM-4 selbst als Forschungsfragen 
 statt formalem Terminologie-Vergleich. Falsch-Positive und Falsch-Negative moeglich;
 Theorem 2.5 (Vollstandigkeit) nur bei korrekter Semantik erfullt.
 
-**Losung (Commit ae012a2):**
+**Losung (pre-public-baseline):**
 
 Zwei neue Hilfsfunktionen in `sild_detector.py`:
 
@@ -79,7 +79,7 @@ Neue Konstanten: `HL7_STRUCTURED_SYSTEMS`, `FHIR_SPECIFIC_SYSTEMS`, `FHIR_GENERI
 **Ursprungliches Problem:** `ack_code = "AE"` ohne ERR-Segment. Sendende Systeme
 konnten den SILD-Block nicht von einem Netzwerkfehler unterscheiden.
 
-**Losung (Commit ae012a2):**
+**Losung (pre-public-baseline):**
 
 `make_ack()` in `sild_mllp_filter.py` erzeugt bei `code='AE'` automatisch ein
 ERR-Segment nach HL7 v2.5+ Standard:
@@ -102,7 +102,7 @@ Override andert nicht die Detektion, nur die operative Konsequenz.
 **Ursprungliches Problem:** Severity war unveranderlich aus dem Detektor; kein
 Mandantenbetrieb moglich.
 
-**Losung (Commit ae012a2):**
+**Losung (pre-public-baseline):**
 
 Neuer `SeverityOverrideConfig`-Dataclass in `sild_detector.py`:
 
@@ -132,7 +132,7 @@ Konfiguration via `--severity-config overrides.json` in beiden Filtern.
 **Ursprungliches Problem:** AD wurde fur jeden OBX ohne OBX-15/16 ausgeloest,
 unabhangig ob die Datenart uberhaupt Device-Info erfordert.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 ```python
 OBX_NUMERIC_TYPES = frozenset({"NM", "NA", "SN", "NR"})  # device-messbar
@@ -155,7 +155,7 @@ NM/NA/SN/NR und unbekannte Typen werden konservativ als geratgemessen behandelt.
 **Ursprungliches Problem:** TC nur bei Keywords ("mean"/"average") in code.display.
 Alle anderen TC-Falle wurden nicht erkannt.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 Zweistufige Erkennung:
 
@@ -185,7 +185,7 @@ phi(r'i) in I'' ist leer.
 **Ursprungliches Problem:** RS wurde nur bei *Abwesenheit* eines Feldes ausgeloest,
 nicht bei vorhandener, aber unauflosbarer Referenz.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 ```python
 def _build_resolvable_refs(entries: list) -> set:
@@ -228,7 +228,7 @@ if should_audit:
 
 **Ursprungliches Problem:** Nur einfaches JSONL; keine FM-1-konforme Audit-Spur.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 Neue Funktion `fhir_audit_events_from_report()` in `sild_detector.py`:
 
@@ -252,7 +252,7 @@ Nur WARNING/CRITICAL-Findings erzeugen AuditEvents (FM-4 §5.2).
 
 **Ursprungliches Problem:** Kein Bit-Budget; nur Pattern-Klassifikation.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 ```python
 LOSS_BITS_PER_PATTERN = {
@@ -279,7 +279,7 @@ Buckets: (10, 20, 40, 80, 160, 320, 640) bit
 
 **Ursprungliches Problem:** Load-Generator maß keine Latenzen.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 ```python
 # send_one() gibt (ok, code, latency_s) zuruck
@@ -301,7 +301,7 @@ p99 = _percentile(sorted_lat, 99) * 1000
 
 **Ursprungliches Problem:** Adapter fur deutsche FHIR-Basisprofile fehlte komplett.
 
-**Losung (Commit fbf2fa3):**
+**Losung (pre-public-baseline):**
 
 Neue Datei `sild_fhir_profiles_de.py` mit 4 MII/KBV-Regeln:
 
@@ -330,7 +330,7 @@ Diese Punkte betrafen Demo-Infrastruktur, nicht die Detektor-Semantik.
 obwohl ORC-2 vorhanden kein bestatigtes Reference Severing darstellt — FM-4 Def. 2.4
 verlangt phi(r'i) = leer im Zielsystem, was erst dort gepruft werden kann.
 
-**Losung (Commit f185c28):**
+**Losung (pre-public-baseline):**
 
 Severity von `warning` auf `info` gesenkt; Beschreibung als "potenziell unauflosbar"
 formuliert:
@@ -357,7 +357,7 @@ ORC-2 vorhanden = kein bestätigtes RS (`warning`), sondern potenzielle Unauflos
 **Problem:** Mock sendete immer `MSA|AA`. Realistische End-to-End-Tests des
 K-2-Fixes (NAK-AE-Verhalten des SILD-Filters) waren nicht moglich.
 
-**Losung (Commit f185c28):**
+**Losung (pre-public-baseline):**
 
 Neuer `--response-mode`-Parameter mit vier Modi:
 
@@ -389,7 +389,7 @@ def make_ack(msg_id: str, code: str) -> bytes:
 **Problem:** `"location": f"#{i}"` ist kein valides FHIR-Location-Format und
 wurde von FHIR-Clients als ungultig abgelehnt.
 
-**Losung (Commit f185c28):**
+**Losung (pre-public-baseline):**
 
 Format auf `ResourceType/id` umgestellt; Fallback auf `urn:uuid:` wenn kein
 ResourceType/id vorhanden:
@@ -417,7 +417,7 @@ issues.append({"severity": "information", "location": location, ...})
 fehlte aber in `requirements.txt`. Auch `prometheus_client` war ohne
 Versionsangabe oder Kommentar aufgefuhrt.
 
-**Losung (Commit f185c28):**
+**Losung (pre-public-baseline):**
 
 ```
 prometheus_client>=0.19.0          # Pflicht
