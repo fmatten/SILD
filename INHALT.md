@@ -62,5 +62,5 @@ sild_monitoring_stack/
 ---
 
 *ISCaD GmbH, 30900 Wedemark — licensing@iscad-it.de*  
-*Lizenz: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial — Repository: codeberg.org/fmatten/sild*  
+*Lizenz: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial — Repository: github.com/fmatten/SILD*  
 *Theory DOI: 10.5281/zenodo.20391260*
