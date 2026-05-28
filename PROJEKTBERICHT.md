@@ -178,10 +178,6 @@ SILD/
 |-- PROJEKTBERICHT.md                      Dieser Bericht
 |-- KONFORMITAETSBERICHT.md                Detaillierte Luckenanalyse
 |
-|-- [veraltet — v2-Varianten]
-|   |-- sild_fhir_sender/filter/target.py
-|   |-- docker-compose-v2.yml / Dockerfile-v2
-|
 +-- sild_monitoring_stack/             AKTUELLER PRODUKTIVER STACK
     |-- docker-compose.yml             7 Services
     |-- Dockerfile                     Python 3.11 Slim
