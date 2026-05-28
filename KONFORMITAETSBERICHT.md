@@ -21,9 +21,10 @@ sind spezifiziert und werden seit Audit-Fix H1(a) durch
 `tests/test_conformance.py` automatisiert gegen `analyse_fhir_bundle()`
 ausgefuehrt. Aktueller Stand (pre-public-baseline + Audit-Fixes Z1/H4/H3/H2/Z2/H5/H1a):
 
-> **13 von 23 Vektoren grün, 10 rot.** Die roten Vektoren zeigen reale
-> semantische Lücken zwischen der Inline-Implementierung und der RFC-Spezifikation
-> (siehe Abschnitt "Automatisierte Vektor-Verifikation" weiter unten).
+> **23 von 23 Vektoren grün** (B1-Paket abgeschlossen mit v1.0.6). Die zuvor
+> roten Vektoren wurden durch RFC-konforme Detector-Anhebungen geschlossen,
+> ohne Vektoren oder Spec zu schwächen (Detail-Tabelle und Closure-Commits
+> siehe Abschnitt "Automatisierte Vektor-Verifikation" weiter unten).
 
 Eine ältere Version dieses Berichts behauptete "FM-4-Konformitat vollstandig" auf
 Basis von Selbstinspektion ohne Test-Lauf. Diese Behauptung ist mit Audit-Fix
@@ -78,11 +79,12 @@ Inline-Implementierung. Sie definieren damit auch die naechste Arbeitsliste
 
 **Vergleich mit der Aussage vor H1a:** Vor diesem Commit behauptete der Bericht
 "FM-4-Konformitat vollstandig" auf Basis von Selbstinspektion. Mit dem Runner
-ist die Aussage zum ersten Mal extern reproduzierbar: aktuell **23/23 = 100 %**
-der spezifizierten Vektoren laufen grün. Das ist die Voraussetzung, an die der
-Bericht den Begriff "Konformitaet" geknuepft hat. Ein CI-Badge wird trotzdem
-ERST gesetzt, wenn auch ein automatisierter CI-Workflow (GitHub Actions oder
-Aequivalent) den Lauf reproduziert; bis dahin bleibt die Aussage an die lokale
+ist die Aussage zum ersten Mal extern reproduzierbar: aktuell **23/23 = 100 %
+der spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2,
+FHIR-Adapter)** laufen grün. Das ist die Voraussetzung, an die der Bericht den
+Begriff "Konformitaet" geknuepft hat. Ein CI-Badge wird trotzdem ERST gesetzt,
+wenn auch ein automatisierter CI-Workflow (GitHub Actions oder Aequivalent)
+den Lauf reproduziert; bis dahin bleibt die Aussage an die lokale
 pytest-Ausfuehrung gebunden.
 
 **Bekannte Vergleichs-Granularitaet:** Die Pfad-Vergleichslogik des Runners ist

@@ -282,7 +282,7 @@ Implementierungsstand der 15 identifizierten K/M/N-Lücken:
 | Mittel (M-1–M-8) | 8 | ✓ 8 (M-6 als kategoriale Schätzung, siehe `loss_budget_bits_estimate`) |
 | Niedrig (N-1–N-4) | 4 | ✓ 4 |
 
-**Automatisierte Verifikation in Arbeit:** Die [SILD Conformance Test Vectors v0.1](SILD%20Conformance%20Test%20Vectors%20v0.1.md) werden seit Audit-Fix H1(a) durch `tests/test_conformance.py` automatisch gegen `analyse_fhir_bundle()` ausgeführt. **Aktueller Stand: 13/23 Vektoren grün.** Die 10 roten Vektoren zeigen reale semantische Lücken zwischen der Inline-Implementierung und der RFC-Spezifikation (Severity-Mapping bei TN, `Timing.repeat` bei TC, value-/dataAbsentReason-Prüfung bei AD, `#contained` und `urn:uuid:` bei RS). Eine "vollständige FM-4-Konformität" wird **erst dann** wieder behauptet, wenn alle Pflicht-Vektoren grün laufen; bis dahin: **kein CI-Badge**.
+**Automatisierte Verifikation:** Die [SILD Conformance Test Vectors v0.1](SILD%20Conformance%20Test%20Vectors%20v0.1.md) werden seit Audit-Fix H1(a) durch `tests/test_conformance.py` automatisch gegen `analyse_fhir_bundle()` ausgeführt. **Aktueller Stand: 23/23 der spezifizierten Vektoren des verpflichtenden Mindest-Regelsatzes (RFC §9.2, v0.1, FHIR-Adapter) grün — lokal via pytest, externe CI-Reproduktion ausstehend. Ein CI-Badge wird erst nach einem automatisierten CI-Lauf gesetzt.**
 
 Aufruf des Runners:
 
