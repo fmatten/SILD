@@ -80,6 +80,26 @@ def _hl7_ce_structured(ce_field: str) -> tuple:
     return bool(code) and bool(system), code, system
 
 
+def _hl7_ce_degraded(ce_field: str) -> tuple:
+    """
+    RFC §9.2 TN-CE-01: target-only Strukturverlust eines HL7v2 CE/CWE-Feldes.
+
+    Liefert (is_degraded, text) wenn das Feld lesbaren Text in Komponente 2
+    traegt, aber weder Identifier (Komponente 1) noch Coding-System
+    (Komponente 3) — direkter v2-Spiegel von FHIR TN-CC-01
+    (`coding.empty() and text.exists()`).
+
+    Die degenerierten Faelle "nur code, kein system" oder "nur system, kein
+    code" sind NICHT TN-CE-01 (parallel zum FHIR-Edge-Fall
+    `coding-without-system-or-code`).
+    """
+    parts  = ce_field.split("^")
+    code   = parts[0].strip() if len(parts) > 0 else ""
+    text   = parts[1].strip() if len(parts) > 1 else ""
+    system = parts[2].strip() if len(parts) > 2 else ""
+    return (bool(text) and not code and not system), text
+
+
 def _fhir_cc_narrowing(cc: dict) -> tuple:
     """
     FM-4 Def. 2.1: CodeableConcept auf Type Narrowing analysieren.
@@ -453,24 +473,41 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                     "warning",
                 ))
 
-            # --- K-1: Type Narrowing — strukturierter Code (FM-4 Def. 2.1) ---
+            # --- B2-TN: TN-CE-01 — OBR-4 CE/CWE Strukturverlust (RFC §9.2) ---
+            #   Praedikat: Komponente 2 (Text) nicht leer UND Komponente 1
+            #              (Identifier) leer UND Komponente 3 (System) leer.
+            #   Severity:  WARNING (spiegelt FHIR TN-CC-01).
             usi = f[4] if len(f) > 4 else ""
             if usi:
-                is_structured, tn_code, tn_system = _hl7_ce_structured(usi)
-                if is_structured:
+                is_degraded, tn_text = _hl7_ce_degraded(usi)
+                if is_degraded:
                     losses.append(LossEvent(
                         LossPattern.TYPE_NARROWING, f"OBR/{current_obr_id}",
-                        f"OBR-4 strukturierter Code '{tn_code}' (System: '{tn_system}') — "
-                        f"FHIR category='laboratory' verliert Terminologie-Spezifizität (FM-4 Def. 2.1)",
-                        "info",
+                        f"OBR-4 traegt Text '{tn_text[:50]}' ohne Identifier "
+                        f"und ohne Coding-System — Terminologie-Spezifizitaet "
+                        f"verloren (TN-CE-01, RFC §9.2)",
+                        "warning",
                     ))
 
         elif seg_type == "OBX":
             obx_id = f"{current_obr_id or '?'}.OBX{f[1] if len(f) > 1 else '?'}"
             # M-1 Fix: OBX-2 Value-Type bestimmt ob Device-Info semantisch erwartet wird
             obx_2  = f[2].strip().upper() if len(f) > 2 else ""
+            obx_3  = f[3] if len(f) > 3 else ""
             obx_15 = f[15] if len(f) > 15 else ""
             obx_16 = f[16] if len(f) > 16 else ""
+
+            # --- B2-TN: TN-CE-01 — OBX-3 CE/CWE Strukturverlust (RFC §9.2) ---
+            if obx_3:
+                is_degraded, tn_text = _hl7_ce_degraded(obx_3)
+                if is_degraded:
+                    losses.append(LossEvent(
+                        LossPattern.TYPE_NARROWING, f"OBX/{obx_id}",
+                        f"OBX-3 traegt Text '{tn_text[:50]}' ohne Identifier "
+                        f"und ohne Coding-System — Terminologie-Spezifizitaet "
+                        f"verloren (TN-CE-01, RFC §9.2)",
+                        "warning",
+                    ))
 
             # --- Attribute Dropping (FM-4 Def. 2.3, M-1) ---
             # Nur bei gerätemessbaren Typen (NM/NA/SN/NR oder unbekannt)
