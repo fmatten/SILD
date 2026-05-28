@@ -722,6 +722,29 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     "critical",
                 ))
 
+        elif rtype == "MedicationRequest":
+            # B1-TC: TC-PERIOD-01 (RFC §9.2 / Appendix B)
+            #   predicate: timing.repeat.exists() and timing.event.empty()
+            #   FHIRPath empty(): true fuer fehlende UND leere Arrays
+            for i, di in enumerate(resource.get("dosageInstruction", []) or []):
+                timing = di.get("timing") if isinstance(di, dict) else None
+                if not isinstance(timing, dict):
+                    continue
+                has_repeat = bool(timing.get("repeat"))
+                events     = timing.get("event")
+                event_empty = (events is None) or (
+                    isinstance(events, list) and len(events) == 0
+                )
+                if has_repeat and event_empty:
+                    losses.append(LossEvent(
+                        LossPattern.TEMPORAL_COLLAPSE, loc,
+                        f"MedicationRequest.dosageInstruction[{i}].timing: "
+                        f"repeat vorhanden, event leer/fehlt — "
+                        f"Wiederholungsstruktur ohne konkrete Zeitpunkte "
+                        f"(TC-PERIOD-01, RFC §9.2)",
+                        "warning",
+                    ))
+
         elif rtype == "Condition":
             # M-3: Encounter-Auflösbarkeit
             enc_event = _rs_check_reference(
