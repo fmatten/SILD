@@ -1,6 +1,6 @@
-# SILD Live-Monitoring-Stack
+# SILD — Referenz-Stack (lokale Methoden-Reproduktion)
 
-**Vollständiges Live-Monitoring** für den SILD MLLP Sidecar — von der eingehenden HL7-Nachricht bis zum Live-Dashboard im Browser.
+**Lokaler Referenz-Stack** für den SILD MLLP Sidecar — fährt die Mess-Methodik end-to-end nach: von der eingehenden HL7-Nachricht bis zum Dashboard im Browser. Zweck: die Methode mit eigenen Augen prüfen, keine produktive Monitoring-Pipeline aufsetzen.
 
 ```
    KIS/LIS                                                AION
