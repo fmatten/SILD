@@ -126,10 +126,12 @@ AION/CAIRN modellieren was Information *bedeutet*, SILD prufft ob sie unterwegs
 
 ## 2. Projektzusammenfassung
 
-**SILD** (Semantic Information Loss Detection) ist ein Live-Monitoring-Stack zur
-Erkennung und Visualisierung von semantischem Datenverlust beim klinischen
-Datenaustausch. Die Software ist die **direkte operative Umsetzung von FM-4**,
-aufbauend auf dem formalen Informationsraum aus FM-1.
+**SILD** (Semantic Information Loss Detection) ist die offene **Referenz-Implementierung
+und Mess-Methodik** zur Erkennung von semantischem Datenverlust an klinischen
+System-Grenzen — die **direkte operative Umsetzung von FM-4**, aufbauend auf dem
+formalen Informationsraum aus FM-1. Veroffentlicht zur methodischen
+Nachprufbarkeit; fur produktive Einbettung und signierte Einmal-Diagnosen siehe
+den Abschnitt "Nutzung & Lizenz" im [README](README.md).
 
 Zwei parallele Ubertragungspfade werden uberwacht:
 - **HL7v2 / MLLP** — Legacy-Protokoll (binares Ubertragungsprotokoll)
