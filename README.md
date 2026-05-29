@@ -1,15 +1,38 @@
 # SILD — Signal-Loss Inspection at Data-boundaries
 
-**Semantic Information Loss Detection** für klinische Cross-System-Übertragungen.
-
-SILD ist ein Live-Monitoring-Stack, der semantischen Datenverlust beim Austausch
-zwischen Krankenhausinformationssystemen (KIS) und klinischen Analyseplattformen
-in Echtzeit erkennt, klassifiziert und visualisiert.
+SILD ist die offene **Referenz-Implementierung und Mess-Methodik** zur Erkennung
+semantischen Datenverlusts an klinischen System-Grenzen — die operative Umsetzung
+von **FM-4**. Veröffentlicht zur **methodischen Nachprüfbarkeit**: vier kanonische
+Verlustmuster, ein trägerunabhängiger Detektor (FHIR R4 + HL7 v2), maschinell
+verifizierte Conformance-Vektoren. Für produktive Einbettung in Klinik-Infrastruktur
+und für signierte Einmal-Diagnosen einzelner Schnittstellen siehe Abschnitt
+**Nutzung & Lizenz** unten.
 
 [![Licence: AGPL-3.0](https://img.shields.io/badge/Licence-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 > Lizenz: [AGPL-3.0 OR Commercial](LICENSE) · Autor: Friedhelm Matten / [ISCaD GmbH](https://iscad-it.de) · Theorie-DOI: [10.5281/zenodo.20391260](https://doi.org/10.5281/zenodo.20391260)
 > GitHub: [fmatten/SILD](https://github.com/fmatten/SILD) · Codeberg: [fmatten/sild](https://codeberg.org/fmatten/sild)
+
+---
+
+## Nutzung & Lizenz
+
+SILD ist offen (AGPL-3.0), weil die Methode öffentlich nachprüfbar sein muss.
+Der gesamte Code, alle Conformance-Vektoren und der formale Hintergrund (FM-4)
+liegen offen — jeder kann die Detektion reproduzieren, die Spezifikation prüfen
+und die Mess-Methodik kritisieren.
+
+Für die **produktive Einbettung** in Klinik-Infrastruktur (laufende Überwachung,
+eigene Tenant-Konfigurationen, Integration in bestehende Compliance-Prozesse) ist
+die AGPL meist die falsche Wahl, weil §13 weitreichende Offenlegungspflichten
+erzeugt. Dafür existiert die **kommerzielle Lizenzschiene** — Kontakt:
+[ISCaD GmbH](https://iscad-it.de).
+
+Für eine **einmalige, signierte Diagnose** einer konkreten Schnittstelle — was
+die meisten Häuser zuerst brauchen, bevor produktive Integration überhaupt
+sinnvoll ist — gibt es das **Grenzverlust-Assessment**: 2–3 Wochen, Festpreis,
+Befundbericht mit priorisierter Mängelliste, durchgeführt durch den
+Methodenurheber. Kontakt: ebenfalls ISCaD.
 
 ---
 
@@ -67,7 +90,11 @@ Beide Filter ──► Prometheus :9090 ──► Grafana :3000
 
 ---
 
-## Schnellstart
+## Methode reproduzieren (lokal)
+
+Diese Schritte fahren die Mess-Methodik lokal nach — Stack + beide Carrier +
+Conformance-Vektoren. Sinn: die Methode mit eigenen Augen prüfen, nicht eine
+produktive Audit-Pipeline aufsetzen.
 
 ```bash
 cd sild_monitoring_stack
@@ -92,6 +119,10 @@ Grafana-Login für Editierrechte: **admin** / **sild-demo**
 | 9100 | MLLP-Filter Metriken |
 | 9101 | FHIR-Filter Metriken |
 | 3000 | Grafana |
+
+> Für die **Anwendung auf eine konkrete Klinik-Schnittstelle**
+> (Stichprobe, Pseudonymisierung, signierter Befundbericht) siehe Abschnitt
+> „Nutzung & Lizenz" oben — das ist Beratungsleistung, kein Self-Service.
 
 ---
 
