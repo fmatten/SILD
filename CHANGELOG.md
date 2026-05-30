@@ -5,6 +5,49 @@ Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.0.0
 
 ---
 
+## [1.1.0] — 2026-05-30 — HL7v2 B2-Conformance-Batch (21/21 Vektoren)
+
+### Hinzugefügt
+- B2-Infra: HL7v2-Conformance-Vektor-Satz + pytest-Runner (`tests/test_conformance_v2.py`); Baseline 11/21
+- B2-TN: TN-CE-01 geschlossen — Prädikat-Inversion, OBX-3-Abdeckung, Severity-Korrektur
+- B2-AD: AD-OBX-01 geschlossen — Prädikat-Verschärfung, Severity-Korrektur
+- B2-RS: RS-ORC-01 geschlossen — Whitespace-Handling, Severity-Korrektur
+- README: Abschnitt „Arbeitsweise & KI-Transparenz" ergänzt
+
+### Geändert
+- Docs: Konformitätsstatus auf FHIR 23/23 · v2 21/21 synchronisiert (README, PROJEKTBERICHT, KONFORMITAETSBERICHT)
+- Docs: Selbst-Audit-Scope auf v1.0.6 präzisiert
+
+---
+
+## [1.0.6] — 2026-05-29 — FHIR B1-Conformance-Batch (23/23 Vektoren)
+
+### Hinzugefügt
+- B1-TC: TC-PERIOD-01 — Timing.repeat ohne event-Liste als Temporal Collapse erkannt
+- B1-AD: AD-VAL-01 — Observation ohne value und ohne dataAbsentReason als Attribute Dropping erkannt
+
+### Geändert
+- B1-TN: TN-CC-01 Severity auf WARNING angehoben; Condition.code & bodySite abgedeckt
+- B1-RS: RS-BUNDLE-01 geschlossen (Severity-Korrektur, urn:uuid:-Referenzen, #contained, externe URLs)
+- AUDIT_BEFUND.md mit v1.0.5-Closure-Status finalisiert und aus Git-Tracking entfernt (.gitignore)
+
+---
+
+## [1.0.5] — 2026-05-28 — Selbst-Audit-Closure (H1–H5, Z1–Z2)
+
+### Hinzugefügt
+- H1(a): YAML-Conformance-Vector-Runner unter pytest hinzugefügt; Vollständigkeitsanspruch im README korrigiert
+
+### Geändert
+- Z1: Phantom-SHAs in RELEASE_NOTES durch `pre-public-baseline` ersetzt
+- H2: Toten `CONTINUOUS_PROCEDURE_KEYWORDS`-Code entfernt, verbleibende Heuristik offengelegt
+- H3: Veraltete Top-Level-Duplikate der Stack-Dateien gelöscht
+- H4: CAIRN-Marketing entfernt; `sild_using_real_cairn`-Gauge vom Import entkoppelt
+- H5: `loss_budget_bits` → `loss_budget_bits_estimate` (Metrik + Code + Dokumentation)
+- Z2: Repository-URL in INHALT.md korrigiert (`codeberg/fmatten/sild` → `github/fmatten/SILD`)
+
+---
+
 ## [1.0.4] — 2026-05-26 — RFC- und Conformance-Test-Korrekturen
 
 ### Geändert
