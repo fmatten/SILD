@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sild"
+version = "1.1.0"
+description = "SILD — Semantic Information Loss Detector (FM-4 v2)"
+readme = "README.md"
+license = { text = "AGPL-3.0-only OR LicenseRef-ISCaD-Commercial" }
+requires-python = ">=3.10"
+authors = [{ name = "Friedhelm Matten / ISCaD GmbH" }]
+keywords = ["fhir", "hl7", "information-loss", "clinical-informatics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# sild_detector.py und sild_fhir_profiles_de.py sind stdlib-only.
+# prometheus_client wird nur von den Docker-Sidecar-Skripten benötigt,
+# nicht vom Python-Paket selbst.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "PyYAML>=6.0"]
+
+[project.urls]
+Repository = "https://github.com/fmatten/SILD"
+
+# Explizit: package "sild" liegt im Verzeichnis sild_monitoring_stack/.
+# Kein packages.find — das würde den Verzeichnisnamen als Paketnamen übernehmen.
+[tool.setuptools]
+packages = ["sild"]
+
+[tool.setuptools.package-dir]
+"sild" = "sild_monitoring_stack"

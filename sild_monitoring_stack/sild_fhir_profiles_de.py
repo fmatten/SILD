@@ -20,7 +20,10 @@ License: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
 Part of: SILD MLLP Sidecar Demo
 """
 
-from sild_detector import LossEvent, LossPattern
+try:
+    from .sild_detector import LossEvent, LossPattern  # package import
+except ImportError:
+    from sild_detector import LossEvent, LossPattern   # standalone (Docker sidecar)
 
 
 # ---------------------------------------------------------------------------
