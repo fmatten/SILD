@@ -93,6 +93,8 @@ RELEVANCE_CASES: List[ClassifyCase] = [
     ClassifyCase("A01 Aufnahme + EVN-6 -> usable",   adt("A01", "C-A01", _evn("A01")),   m1.USABLE, "A01"),
     ClassifyCase("A02 Verlegung + EVN-6 -> usable",  adt("A02", "C-A02", _evn("A02")),   m1.USABLE, "A02"),
     ClassifyCase("A03 Entlassung + EVN-6 -> usable", adt("A03", "C-A03", _evn("A03")),   m1.USABLE, "A03"),
+    # relevant, Eintritts-Event der ambulanten/Notaufnahme-Phase (NEU: A04 durch)
+    ClassifyCase("A04 Registrierung + EVN-6 -> usable", adt("A04", "C-A04", _evn("A04")), m1.USABLE, "A04"),
     # relevant, rueckwirkend veraendernd (Update + Storni durchgereicht!)
     ClassifyCase("A08 Update + EVN-6 -> usable",     adt("A08", "C-A08", _evn("A08")),   m1.USABLE, "A08"),
     ClassifyCase("A11 Storno Aufnahme -> usable",    adt("A11", "C-A11", _evn("A11")),   m1.USABLE, "A11"),
@@ -106,7 +108,6 @@ RELEVANCE_CASES: List[ClassifyCase] = [
     ClassifyCase("RDE^O11 (Order) -> ignored",
                  _msg(_msh("O11", "C-RDE", msg_code="RDE")),               m1.IGNORED, "O11"),
     # known-but-not-interval-relevant ADT -> ignored (documented, extensible boundary)
-    ClassifyCase("ADT^A04 Registrierung -> ignored", adt("A04", "C-A04", _evn("A04")),   m1.IGNORED, "A04"),
     ClassifyCase("ADT^A05 Voraufnahme -> ignored",   adt("A05", "C-A05", _evn("A05")),   m1.IGNORED, "A05"),
     # CORRECTION (category error fix): ADT WITH a missing/unreadable trigger code is
     # "my topic but broken" -> hold_malformed + finding, NEVER silently ignored.

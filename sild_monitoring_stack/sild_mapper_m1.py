@@ -33,7 +33,7 @@ Garantien (jede mit benanntem Test in tests/test_mapper_m1.py):
          intervall-veraendernde {A08, A11, A12, A13 = Update/Storni}. M-1 reicht
          Storni als relevant DURCH; das Widerrufen eines Intervalls ist M-2.
          NICHT-ADT (ORU/RDE/technisch) und bekannte, nicht intervall-relevante
-         ADT (A04/A05/A06/A07/A21/A22 etc.) -> ignoriert (kein Befund, kein
+         ADT (A05/A06/A07/A21/A22 etc.) -> ignoriert (kein Befund, kein
          M-2-Push; bewusste, erweiterbare Grenze). ABER: eine ADT mit fehlendem/
          unlesbarem Trigger-Code (MSH-9 Schluesselfeld) ist NICHT irrelevant,
          sondern strukturell defekt -> hold_malformed + Befund (unparsebar !=
@@ -114,6 +114,12 @@ RELEVANT_TRIGGERS: frozenset = frozenset({
     "A01",  # Aufnahme        — intervall-bestimmend
     "A02",  # Verlegung       — intervall-bestimmend
     "A03",  # Entlassung      — intervall-bestimmend
+    "A04",  # Registrierung   — Eintritts-Event der ambulanten/Notaufnahme-Phase.
+            #                    Frueher als "nicht intervall-relevant" gefuehrt;
+            #                    seit der "Notaufnahme-Phase = eigenes Intervall"-
+            #                    Entscheidung IST A04 der Eintritts-Trigger (Muster
+            #                    B/C in M-2). M-1 reicht nur syntaktisch durch — die
+            #                    B-vs-C-Entscheidung trifft M-2.
     "A08",  # Update          — rueckwirkend intervall-veraendernd
     "A11",  # Storno Aufnahme — rueckwirkend (widerrufen ist M-2)
     "A12",  # Storno Verlegung
@@ -188,6 +194,7 @@ _DEFAULT_TIME_CANDIDATES: dict = {
     "A01": [_PV1_ADMIT,     _EVN_OCCURRED, _EVN_RECORDED],   # Aufnahme
     "A02": [_ZBE_START,     _EVN_OCCURRED],                  # Verlegung -> ZBE-2 -> EVN-6, NICHT PV1-44
     "A03": [_PV1_DISCHARGE, _EVN_OCCURRED, _EVN_RECORDED],   # Entlassung
+    "A04": [_EVN_OCCURRED,  _EVN_RECORDED],                  # Registrierung — EVN-6 -> EVN-2 (kein PV1-44 beim A04)
     "A08": [_EVN_OCCURRED,  _EVN_RECORDED],                  # Update — profilabhaengig, final in M-2
     "A11": [_EVN_OCCURRED,  _EVN_RECORDED],                  # Storno Aufnahme — profilabhaengig, M-2
     "A12": [_EVN_OCCURRED,  _EVN_RECORDED],                  # Storno Verlegung — profilabhaengig, M-2
@@ -359,7 +366,7 @@ def classify(
                               "ADT mit fehlendem/unlesbarem Trigger-Code "
                               "(MSH-9 Schluesselfeld der Bewegung)")
 
-    # Bekannter, aber nicht intervall-relevanter Trigger (A04/A05/...) -> bewusste Grenze.
+    # Bekannter, aber nicht intervall-relevanter Trigger (A05/A06/A07/...) -> bewusste Grenze.
     if trigger not in RELEVANT_TRIGGERS:
         return Classification(IGNORED, trigger, marker,
                               f"ADT^{trigger} nicht intervall-relevant (M1-G3-Grenze)")

@@ -96,12 +96,62 @@ def _make_mapper(tmp_path, *, notifier=None, forward_calls=None):
 
 @pytest.mark.parametrize("case", RELEVANCE_CASES, ids=lambda c: c.name)
 def test_m1g3_relevance_filter(case):
-    """Relevant ADT (incl. A08 update + A11/A12/A13 storni) -> passed through;
-    everything else (other ADT / ORU / RDE) -> ignored, no finding, no M-2 push."""
+    """Relevant ADT (incl. A04 entry + A08 update + A11/A12/A13 storni) -> passed
+    through; everything else (other ADT / ORU / RDE) -> ignored, no finding, no push."""
     c = classify(case.raw, now=FIXED_NOW)
     assert c.kind == case.expected_kind, case.name
     if case.expected_trigger is not None:
         assert c.trigger == case.expected_trigger, case.name
+
+
+# --- A04 made interval-relevant (M-2 entry event for Muster B/C) ---------------
+
+def test_m1_a04_now_relevant_and_forwarded(tmp_path):
+    """A04 (Registrierung) is the entry event of the ambulatory/emergency phase.
+    It now passes through as usable (was: ignored) with the right provenance, and
+    reaches M-2 via forward_fn. M-1 only classifies syntactically — the B-vs-C
+    decision is M-2's."""
+    from tests.mapper_m1_vectors import _evn, _evn2
+    # EVN-6 present -> usable, event-time provenance
+    c6 = classify(adt("A04", "A4-E6", _evn("A04")), now=FIXED_NOW)
+    assert c6.kind == m1.USABLE and c6.trigger == "A04"
+    assert c6.time_provenance == "EVN-6 (Ereigniszeit)"
+    # only EVN-2 (the corpus shape) -> usable, but flagged recorded-substitute
+    c2 = classify(adt("A04", "A4-E2", _evn2("A04")), now=FIXED_NOW)
+    assert c2.kind == m1.USABLE
+    assert c2.time_provenance == "EVN-2 (Erfassungs-Ersatz)", "recorded substitute, not measured"
+    # forwarded to M-2 with its provenance
+    forwarded = []
+    _seed_intake(tmp_path, [adt("A04", "A4-FWD", _evn2("A04"))])
+    reader = IntakeReader(tmp_path / "intake.sqlite")
+    mstore = MapperStore(tmp_path / "mapper.sqlite")
+    mapper = MapperM1(reader, mstore, _FakeNotifier(),
+                      forward_fn=lambda rid, raw, trig, prov: forwarded.append((trig, prov)),
+                      now_fn=lambda: FIXED_NOW)
+    mapper.poll_once()
+    assert forwarded == [("A04", "EVN-2 (Erfassungs-Ersatz)")], "A04 reaches M-2 (was ignored)"
+
+
+def test_m1_a04_without_time_holds_not_ignored(tmp_path):
+    """A04 with no usable time (no EVN-6, no EVN-2) -> hold_timequality + finding,
+    NOT ignored and NOT silently usable (same three-way logic as every trigger)."""
+    a04 = adt("A04", "A4-NOTIME")                    # MSH+EVN-type only, no EVN time
+    assert classify(a04, now=FIXED_NOW).kind == m1.HOLD_TIMEQUALITY
+    _seed_intake(tmp_path, [a04])
+    reader, mstore, mapper = _make_mapper(tmp_path)
+    disp = mapper.poll_once()
+    assert disp[0].kind == m1.HOLD_TIMEQUALITY
+    assert mstore.counts()["findings"] == 1, "A04-without-time is surfaced, not dropped"
+
+
+def test_m1_a04_change_leaves_a02_rule_untouched():
+    """Regression: the A02 rule is deliberately unchanged — an A02 with time only
+    in EVN-2 is STILL held (no EVN-2 fallback for A02); A05 STILL ignored."""
+    from tests.mapper_m1_vectors import _evn2, _evn
+    a02_evn2 = adt("A02", "A2-E2", _evn2("A02"))     # only EVN-2
+    assert classify(a02_evn2, now=FIXED_NOW).kind == m1.HOLD_TIMEQUALITY, "A02 rule untouched"
+    a05 = adt("A05", "A5-X", _evn("A05"))
+    assert classify(a05, now=FIXED_NOW).kind == m1.IGNORED, "A05 still not interval-relevant"
 
 
 # --- M1-G4: three-way syntactic time quality ----------------------------------
