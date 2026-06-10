@@ -125,6 +125,67 @@ Exponiert vier Metric-Familien:
 | `sild_forward_decisions_total` | Counter | decision, message_type | Forward-Entscheidungen |
 | `sild_filter_latency_seconds` | Histogram | message_type | Verarbeitungslatenz |
 
+### persist-before-ack — durabler v2-Eingang (Default an, Variante A)
+
+Der v2-Eingang läuft **standardmäßig durabel** (fail-secure, wie `AUTH_ENABLED`:
+im Zweifel durabel): `frame(vollständig) → persist(fsync) → analyse → ack →
+forward`. Keine *angenommene* Nachricht geht über einen Absturz verloren —
+schlimmstenfalls entsteht ein Duplikat (vom Sender-Retry), nie ein Verlust.
+Garantien G1–G6 und ihre Tests: `sild_durable_store.py` bzw.
+`tests/test_durability_v2.py`.
+
+```bash
+# Default: durabel. Store-Pfad = <Verzeichnis von --log>/sild_intake.sqlite,
+# oder explizit:
+python sild_mllp_filter.py --listen 2575 --forward localhost:2576 \
+                           --log sild_reports.jsonl \
+                           --durable-store /data/sild_intake.sqlite
+
+# Durability abschalten (NUR Demo/Test — gibt eine laute Warnung aus):
+python sild_mllp_filter.py --listen 2575 --no-durable
+```
+
+- **Store:** SQLite, `journal_mode=WAL, synchronous=FULL` (fsync pro Commit).
+- **ACK-Latenz:** jetzt durch einen fsync untergrenzt, über Verbindungen am
+  SQLite-Single-Writer serialisiert — die RFC-§10-Zahlen (p99 < 2 ms, „no
+  persistent store") gelten für diesen Pfad nicht.
+
+**ACK-Semantik unter persist-before-ack (wichtig — betrifft jetzt alle, da
+Default an):** Ein NAK-AE ist **signal-and-duplicate, NICHT reject**. Die
+Nachricht ist beim ACK bereits durabel angenommen; ein AE bei CRITICAL (K-2,
+FM-4 §5.2) *signalisiert* der Quelle einen kritischen Verlust, *lehnt aber nicht
+ab* — der übliche Sender-Retry erzeugt dann ein Duplikat (downstream über den
+Idempotenz-Marker dedup-bar). Wer SILD im alten „Reject"-Verständnis betreibt,
+muss das wissen: AE heißt hier „durabel gespeichert + kritisch", nicht „verworfen".
+
+**⚠️ Verschlüsselung at-rest:** Der Store enthält **rohe v2-Payload inkl. PID/PHI
+im Klartext**. SILD verschlüsselt sie **nicht** — das ist Sache des Betreibers
+(RFC §11.1): Store auf ein verschlüsseltes Volume legen. Der Filter gibt beim
+Start eine entsprechende Warnung aus.
+
+**Löschung (SILD-SF-1, in diesem Stand adressiert):** patientenbezogene Löschung
+über `sild_durable_store.py erase` — dry-run per Default, `--commit` explizit
+(destruktiver PID-Pfad). Patienten-Schlüssel = PID-3, MR-typisiert,
+`Authority|ID` (standortkonfigurierbar). Fail-closed: eine Zeile ohne auflösbaren
+Schlüssel (technische/kaputte Nachricht) kann nicht zugeordnet werden → Status
+`incomplete_uncertain` + Restrisiko-Zähler, nie still „gelöscht". Das
+Lösch-Protokoll trägt Schlüssel/Zähler/Status/Zeit — **nie** die Payload.
+
+```bash
+# dry-run (löscht nichts):
+python sild_durable_store.py erase --store /data/sild_intake.sqlite \
+                                   --patient-key "HOSP|P-2026-12345"
+# echte Löschung + Audit-Zeile:
+python sild_durable_store.py erase --store /data/sild_intake.sqlite \
+                                   --patient-key "HOSP|P-2026-12345" \
+                                   --commit --erase-log /data/sild_erase.jsonl
+```
+
+> **G6-Ehrlichkeit:** „G6 grün" heißt *kein DIREKTER* Identifikator (Name/PID-5)
+> im JSONL — **nicht** „PII-frei". Finding-Locations können INDIREKT
+> personenbeziehbare Identifier enthalten (Order-Nummern aus ORC-2/OBR-2,3). Das
+> JSONL untersteht denselben Zugriffskontrollen wie der Store. Siehe SILD-SF-1.
+
 ### `load-generator`
 Sendet kontinuierlich Test-Nachrichten an den Filter — durchschnittlich 1.5 pro Sekunde, mit zufälligen Bursts (1–5 Nachrichten am Stück, dann längere Pause). Sorgt dafür, dass das Dashboard sofort lebendige Daten zeigt.
 
