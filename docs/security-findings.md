@@ -8,6 +8,7 @@ the dataflow.
 |----|-------|--------|----------|
 | SILD-SF-1 | Durable v2 intake store holds raw PII — erasure + backup | **Erasure BUILT; backup DOCUMENTED** | high (privacy) |
 | SILD-SF-2 | JSONL audit may carry INDIRECT identifiers (order numbers) | **OPEN — documented limitation** | medium (privacy) |
+| SILD-SF-3 | M-1 Mapper-DB hold-queue holds raw PII — erasure + backup + schema evolution | **Erasure BUILT; backup DOCUMENTED; schema-migration OPEN** | high (privacy) |
 
 ---
 
@@ -84,3 +85,58 @@ at-rest protection as the durable store** (RFC §11.1) — it is not safe to tre
 it as a low-sensitivity log just because it omits names. Stripping/pseudonymising
 indirect identifiers in finding locations is possible future work; for now it is a
 **documented limitation**, surfaced in the README ("G6-Ehrlichkeit").
+
+---
+
+## SILD-SF-3 — M-1 Mapper-DB: erasure + backup of raw PII, and schema evolution
+
+**Context.** M-1 (`sild_monitoring_stack/sild_mapper_m1.py`) reads SILD's intake
+store **read-only** (`mode=ro` + `PRAGMA query_only`) and keeps its own Mapper-DB
+on a mounted volume. Its `hold_queue` retains the **full raw HL7 v2 payload,
+including PID**, for messages held back (time-quality / malformed) — and these are
+exactly the *problematic, lingering* messages. `finding` / `disposition` /
+`seen_marker` are PID-free (markers = MSH-3/4/10 source metadata only). So the
+Mapper-DB is a second SF-1-class PHI surface, one stage downstream of ingress.
+
+**Erasure — BUILT (Lesart A, no PID window), SILD logic reused.**
+`MapperStore.erase_patient()` + the `sild_mapper_m1.py erase` CLI reuse SILD's
+proven `classify_patient_keys` / `EraseResult` / `build_erase_audit_record` (not
+reinvented). Patient key = PID-3 MR-typed `Authority|ID` (multi-MR → key set;
+empty authority → default-or-uncertain, never the bare ID). The hold-queue is the
+only PID source, so erasure deletes the matching `hold_queue` + `hold_patient_key`
+rows, scoped exactly to the key (X-gone / Y-intact). dry-run default, `--commit`
+explicit; content-free erase audit (key/counts/status/time, never payload).
+
+**Erasure — fail-closed completeness, correct distinction (NO global count).**
+Mirrors the SILD-SF-1 fix exactly: a hold with **no PID-3** (patientless /
+technical) belongs to no patient and is **not** residual risk for erase X; only a
+hold with a **present-but-unreadable PID-3** is `unresolved` and forces
+`incomplete_uncertain`. Counting all unattributable rows globally would make every
+erasure read incomplete forever — the alarm that always rings is no alarm.
+
+**At-rest encryption — DELEGATED + LOUD.** Like SILD's G6: the Mapper-DB path is
+configurable, raw v2 is not encrypted by M-1 (operator's encrypted volume), and
+the surface is documented in the README ("G6-analog für die Mapper-DB").
+
+**Backup — DOCUMENTED obligation (not yet automated).** Same as SILD-SF-1: an
+erasure that does not also reach Mapper-DB backups/snapshots is incomplete. A full
+patient erasure must reach **both** SILD's store and the Mapper-DB and the
+operator's backup rotation.
+
+**Schema evolution — OPEN (tracked).** The Mapper-DB schema is created with
+`CREATE TABLE IF NOT EXISTS`, which is sufficient **now** (greenfield — no
+persistent Mapper-DBs exist in the field, so no migration path is needed yet and
+adding one would be over-engineering). **But once persistent Mapper-DBs exist in
+the field, schema evolution becomes an open point**: `CREATE TABLE IF NOT EXISTS`
+does **not** add new columns to an already-existing table (e.g. the
+`disposition.time_provenance` column added for time-provenance would be missing on
+an old DB). This is the SILD-side of the Alembic lesson — recorded here, not
+solved here.
+
+**Related.**
+- **SILD-SF-1** (above) — the analogous finding on SILD's ingress store; same
+  Lesart-A erasure semantics, reused here.
+- RFC §11.1 — at-rest encryption + access control (delegated to ops).
+- M-1/M-2 boundary — semantic plausibility, time-based ordering and time
+  provenance (measured vs. estimated) live in M-2; M-1 only *starts* the time
+  provenance (records which field the movement time came from).
