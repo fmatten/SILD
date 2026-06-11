@@ -350,6 +350,11 @@ EST_REVERTED = "reverted_hold"  # Schranke entfiel -> zurueckgebaut, wieder Hold
 RETRO_INSERT_ESTIMATED = "insert_estimated_boundary"
 RETRO_UPDATE_ESTIMATED = "update_estimated_boundary"
 
+# M4: Strom-Kinds fuer WIRKSAME abgeleitete Aenderungen (No-Op bleibt still).
+CHANGE_ESTIMATE_APPLIED  = "estimate_applied"
+CHANGE_ESTIMATE_UPDATED  = "estimate_updated"
+CHANGE_ESTIMATE_REVERTED = "estimate_reverted"
+
 # Ingest-Outcomes fuer M-1-Hold-Kandidaten (Teil B).
 OUT_ESTIMATION_CANDIDATE = "estimation_candidate"  # zeitloses A02 — einklemmbar?
 OUT_HOLD_UNSUPPORTED     = "hold_unsupported"      # Hold, den Stufe 3 nicht schaetzt
@@ -1004,6 +1009,31 @@ CREATE TABLE IF NOT EXISTS m2_hold_cursor (
     id              INTEGER PRIMARY KEY CHECK (id = 0),
     last_receipt_id INTEGER NOT NULL
 );
+-- M4 (K2): Revisionsnummer pro Stay — erhoeht sich bei JEDER sichtbaren
+-- Veraenderung (Vorwaertsbau + Stufe-2-Mutation + wirksame Schaetzungs-
+-- Neuableitung), IMMER in derselben Transaktion wie die Veraenderung selbst.
+-- Reiner Zaehler (stay_id + int, kein Inhalt/Quasi-Identifikator); wird bei
+-- Stay-Erasure mitgeloescht (M4-G7), zaehlt aber nicht als Inhalts-Objekt.
+CREATE TABLE IF NOT EXISTS stay_revision (
+    stay_id  INTEGER PRIMARY KEY,
+    revision INTEGER NOT NULL DEFAULT 0
+);
+-- M4 (K1): der maschinenlesbare Aenderungs-Payload — 1:1 zur retro_notification,
+-- geschrieben ATOMAR mit Mutation + Revision (nie Notification-Zeile im
+-- Aenderungs-View ohne Zustand). Traegt den VOLLSTAENDIGEN neuen Stay-Zustand
+-- (after_json, PID-frei) + (stay_id, revision) fuer idempotenten Konsum (K2).
+-- Eigene Tabelle statt retro_audit, weil retro_audit.receipt_id UNIQUE ist
+-- (eine Stufe-2-Mutation je Event) — abgeleitete Aenderungen koennen je
+-- Hold-Receipt MEHRFACH auftreten (apply/update/revert). Quasi-Identifikator
+-- (Standort+Zeit-Sequenzen) -> erasure-pflichtig.
+CREATE TABLE IF NOT EXISTS change_payload (
+    notification_id INTEGER PRIMARY KEY,
+    stay_id         INTEGER NOT NULL,
+    revision        INTEGER NOT NULL,
+    kind            TEXT NOT NULL,
+    after_json      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_change_payload_stay ON change_payload (stay_id);
 -- M2-G6: Befunde — zuerst durabel ('pending'), dann aktiv gemeldet (M-1-Kanal).
 CREATE TABLE IF NOT EXISTS finding (
     finding_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1018,6 +1048,65 @@ CREATE TABLE IF NOT EXISTS finding (
     delivered_ts    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_m2_finding_delivery ON finding (delivery_status);
+
+-- ===========================================================================
+-- M4: die PULL-FLAECHE fuer AION (B.1b liest die M-2-DB READ-ONLY).
+-- DIE VIEWS SIND DER VERTRAG (docs/aion-pull-contract.md) — das interne
+-- Schema darf sich aendern, solange die View-Spalten stabil bleiben (M4-G1).
+-- ===========================================================================
+-- Strom 1: Stays (PID-TRAGEND: patient_key, visit_id — Scope s. Kontrakt §PID).
+CREATE VIEW IF NOT EXISTS v_aion_stay AS
+SELECT s.stay_id,
+       COALESCE(r.revision, 0)  AS revision,
+       s.pattern,
+       s.status,
+       s.patient_key,
+       s.visit_id,
+       s.opened_event_ts,
+       s.closed_event_ts,
+       (SELECT GROUP_CONCAT(kind) FROM plausibility_marker pm
+         WHERE pm.scope = 'stay' AND pm.ref_id = s.stay_id) AS stay_markers
+FROM stay s
+LEFT JOIN stay_revision r ON r.stay_id = s.stay_id;
+-- Strom 1: Lage-Segmente (PID-frei, aber Quasi-Identifikator). Provenienz pro
+-- Grenzseite; PROV_ESTIMATED-Grenzen tragen ihre SCHRANKEN + Quell-Events
+-- (Maximal-Ausdehnungs-Kodierung, Lese-Regel im Kontrakt!); nur AKTIVE
+-- Schaetzungen erscheinen (waiting/reverted_hold haben keine Segmente).
+CREATE VIEW IF NOT EXISTS v_aion_segment AS
+SELECT seg.stay_id,
+       COALESCE(r.revision, 0)  AS revision,
+       seg.segment_id,
+       seg.seq,
+       seg.pv1_3_raw,
+       seg.ward, seg.room, seg.bed,
+       seg.start_ts, seg.start_provenance,
+       seg.end_ts, seg.end_provenance,
+       (seg.end_ts IS NULL)     AS is_open,
+       (SELECT GROUP_CONCAT(kind) FROM plausibility_marker pm
+         WHERE pm.scope = 'segment' AND pm.ref_id = seg.segment_id) AS segment_markers,
+       be.lower_ts              AS estimate_lower,
+       be.upper_ts              AS estimate_upper,
+       be.lower_source_receipt  AS estimate_lower_source,
+       be.upper_source_receipt  AS estimate_upper_source
+FROM segment seg
+LEFT JOIN stay_revision r ON r.stay_id = seg.stay_id
+LEFT JOIN boundary_estimate be ON be.status = 'active' AND
+     (   (seg.start_provenance = 'estimated' AND be.receipt_id = seg.start_receipt)
+      OR (seg.end_provenance   = 'estimated' AND be.receipt_id = seg.end_receipt));
+-- Strom 2 (K1): Aenderungs-Log — jede Zeile traegt den VOLLSTAENDIGEN neuen
+-- Stay-Zustand (after_json, PID-frei) + (stay_id, revision) (K2). Cursor =
+-- notification_id (AUTOINCREMENT, monoton, keine Wiederverwendung). INNER
+-- JOIN: eine Notification erscheint erst, wenn ihre Mutation committet ist.
+CREATE VIEW IF NOT EXISTS v_aion_change AS
+SELECT n.notification_id,
+       p.stay_id,
+       p.revision,
+       p.kind,
+       p.after_json,
+       n.receipt_id,
+       n.created_ts
+FROM retro_notification n
+JOIN change_payload p ON p.notification_id = n.notification_id;
 """
 
 
@@ -1186,6 +1275,26 @@ class M2Store:
     # --- Apply-Transaktionen (eine pro Event — Crash dazwischen laesst das
     # Event 'pending' und damit wiederanwendbar; angewandt = festgeschrieben) --
 
+    def _bump_revision(self, cur, stay_id: int) -> int:
+        """M4-G2 (K2): Revision erhoehen — IMMER mit demselben Cursor/derselben
+        Transaktion wie die ausloesende sichtbare Veraenderung (ein Leser sieht
+        nie neue Revision mit altem Zustand oder umgekehrt). Liefert die neue
+        Revision (fuer den K1-Payload)."""
+        cur.execute(
+            "INSERT INTO stay_revision (stay_id, revision) VALUES (?, 1) "
+            "ON CONFLICT(stay_id) DO UPDATE SET revision = revision + 1",
+            (stay_id,))
+        return cur.execute(
+            "SELECT revision FROM stay_revision WHERE stay_id=?", (stay_id,)
+        ).fetchone()[0]
+
+    def get_revision(self, stay_id: int) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT revision FROM stay_revision WHERE stay_id=?", (stay_id,)
+            ).fetchone()
+        return row[0] if row else 0
+
     def _mark_applied(self, cur, receipt_id: int, reason: Optional[str] = None,
                       status: str = EV_APPLIED) -> None:
         cur.execute(
@@ -1211,6 +1320,7 @@ class M2Store:
                 (stay_id, 1, ev.pv1_3_raw, ev.ward, ev.room, ev.bed,
                  ev.event_ts, ev.provenance, ev.receipt_id),
             )
+            self._bump_revision(cur, stay_id)            # M4-G2 (gleiche Txn)
             self._mark_applied(cur, ev.receipt_id)
             self._conn.commit()
         return stay_id
@@ -1247,6 +1357,7 @@ class M2Store:
                     "UPDATE stay SET visit_id=? WHERE stay_id=? AND visit_id IS NULL",
                     (ev.visit_id, stay_id),
                 )
+            self._bump_revision(cur, stay_id)            # M4-G2 (gleiche Txn)
             self._mark_applied(cur, ev.receipt_id)
             self._conn.commit()
         return stay_id
@@ -1279,6 +1390,7 @@ class M2Store:
                     "UPDATE stay SET visit_id=? WHERE stay_id=? AND visit_id IS NULL",
                     (ev.visit_id, stay_id),
                 )
+            self._bump_revision(cur, stay_id)            # M4-G2 (gleiche Txn)
             self._mark_applied(cur, ev.receipt_id)
             self._conn.commit()
 
@@ -1339,6 +1451,8 @@ class M2Store:
                     f"UPDATE stay SET pattern=? WHERE stay_id IN ({qmarks})",
                     (PATTERN_C, *ids),
                 )
+                for sid in ids:                          # M4-G2 (gleiche Txn)
+                    self._bump_revision(cur, sid)
             self._conn.commit()
         return ids
 
@@ -1638,10 +1752,12 @@ class M2Store:
                      s["end_receipt"]))
 
     def apply_retro_plan(self, audit_id: int, receipt_id: int, plan: dict,
-                         *, resolve_pending_id: Optional[int] = None) -> None:
-        """M2c-G1 Schritt 3: die Mutation in place — Mutation + audit.applied=1
-        + Event-Status (+ ggf. Tombstone-Aufloesung) als EINE Transaktion
-        (M2c-G2: genau einmal; Crash davor laesst alles wiederholbar).
+                         *, resolve_pending_id: Optional[int] = None,
+                         notification_id: Optional[int] = None) -> None:
+        """M2c-G1 Schritt 3: die Mutation in place — Mutation + Revision-Bump +
+        K1-Payload + audit.applied=1 + Event-Status (+ ggf. Tombstone-
+        Aufloesung) als EINE Transaktion (M2c-G2: genau einmal; Crash davor
+        laesst alles wiederholbar; M4-G2: nie Revision ohne Zustand).
 
         EIN CODE-PFAD (SF-1-Lektion): die DB-Mutation IST apply_plan_to_snapshot
         — derselbe pure Plan-Anwender, der den vermerkten/gemeldeten
@@ -1663,6 +1779,18 @@ class M2Store:
                 self._conn.rollback()
                 raise ValueError(f"Plan passt nicht zum aktuellen Stand: {e}") from e
             self._write_back_snapshot(cur, before, after, plan["stay_id"])
+            revision = self._bump_revision(cur, plan["stay_id"])   # M4-G2 (gleiche Txn)
+            if notification_id is not None:
+                # M4 (K1): maschinenlesbarer Payload — exakt das `after`, das
+                # der EINE Plan-Anwender soeben zurueckgeschrieben hat (== DB-
+                # Stand per Konstruktion, SF-1). INSERT OR REPLACE: ein Crash-
+                # Resume schreibt denselben Payload idempotent.
+                cur.execute(
+                    "INSERT OR REPLACE INTO change_payload "
+                    "(notification_id, stay_id, revision, kind, after_json) "
+                    "VALUES (?,?,?,?,?)",
+                    (notification_id, plan["stay_id"], revision, plan["op"],
+                     json.dumps(after, ensure_ascii=False)))
             cur.execute(
                 "UPDATE retro_audit SET applied=1, applied_ts=? WHERE audit_id=?",
                 (ts, audit_id))
@@ -1927,13 +2055,32 @@ class M2Store:
                 (receipt_id, stay_id, status, lower, upper, lower_src, upper_src,
                  _utcnow_iso()))
 
+    # M4: abgeleitete Aenderungen ohne Stufe-2-Audit tragen diesen Sentinel als
+    # audit_id (retro_notification.audit_id ist NOT NULL; retro_audit kann sie
+    # nicht aufnehmen, weil receipt_id dort UNIQUE ist und ein Hold-Receipt
+    # mehrfach abgeleitet werden kann). Der K1-Zustand liegt im change_payload.
+    DERIVED_AUDIT_SENTINEL = 0
+
     def apply_derived_plan(self, stay_id: int, plan: dict, *, estimate: dict,
-                           finding: Optional[Finding] = None) -> Optional[Finding]:
+                           finding: Optional[Finding] = None,
+                           notify_kind: Optional[str] = None
+                           ) -> Tuple[Optional[Finding], Optional[int]]:
         """M3 Teil B: abgeleitete Mutation (Schaetzung anwenden/anpassen/
         zurueckbauen) — DERSELBE Plan-Anwender + Write-back wie Stufe 2
-        (SF-1: ein Code-Pfad), aber ohne retro_audit: eine Schaetzung ist ein
-        ABGELEITETER Wert, keine Revision eines Fakts. Schaetz-Zeile (und ggf.
-        Rueckfall-Befund) im SELBEN Commit."""
+        (SF-1: ein Code-Pfad), aber ohne retro_audit-Intent: eine abgeleitete
+        Aenderung ist aus ihren Inputs RE-DERIVIERBAR, darum genuegt EIN
+        atomarer Commit (statt des Intent/Mutation-Splits der Stufe 2 — ein
+        Leser sieht nie Revision ohne Zustand, M4-G2).
+
+        M4 (wirksame Aenderung -> Strom): der Aufrufer setzt `notify_kind`
+        NUR bei tatsaechlich wirksamen Aenderungen (No-Op bleibt still, kein
+        Rauschen — M4-G3). Dann werden Revision-Bump + retro_notification +
+        K1-Payload (vollstaendiger neuer Zustand) + Schaetz-Zeile (+ ggf.
+        Rueckfall-Befund) im SELBEN Commit geschrieben; alt->neu fuer den
+        Body kommt aus before/after DIESER Transaktion; der Marker-Lookup
+        laeuft in derselben Transaktion (Deadlock-Lektion). Zustellung macht
+        der Aufrufer NACH dem Commit. Liefert (Befund, notification_id)."""
+        notif_id: Optional[int] = None
         with self._lock:
             cur = self._conn.cursor()
             cur.execute("BEGIN")
@@ -1946,6 +2093,26 @@ class M2Store:
                 self._conn.rollback()
                 raise ValueError(f"Plan passt nicht zum aktuellen Stand: {e}") from e
             self._write_back_snapshot(cur, before, after, stay_id)
+            revision = self._bump_revision(cur, stay_id)           # M4-G2 (gleiche Txn)
+            if notify_kind is not None:
+                mrow = cur.execute(
+                    "SELECT msh3, msh4, msh10 FROM m2_processed WHERE receipt_id=?",
+                    (estimate["receipt_id"],)).fetchone()
+                marker = (mrow[0], mrow[1], mrow[2]) if mrow else (None, None, None)
+                subject, body = build_retro_notification(
+                    notify_kind, stay_id, before, after, marker)
+                cur.execute(
+                    "INSERT INTO retro_notification (audit_id, receipt_id, subject, "
+                    "body, delivery_status, created_ts) VALUES (?,?,?,?, 'pending', ?)",
+                    (self.DERIVED_AUDIT_SENTINEL, estimate["receipt_id"],
+                     subject, body, _utcnow_iso()))
+                notif_id = cur.lastrowid
+                cur.execute(
+                    "INSERT OR REPLACE INTO change_payload "
+                    "(notification_id, stay_id, revision, kind, after_json) "
+                    "VALUES (?,?,?,?,?)",
+                    (notif_id, stay_id, revision, notify_kind,
+                     json.dumps(after, ensure_ascii=False)))
             cur.execute(
                 "INSERT OR REPLACE INTO boundary_estimate (receipt_id, stay_id, "
                 "status, lower_ts, upper_ts, lower_source_receipt, "
@@ -1956,7 +2123,7 @@ class M2Store:
                  estimate.get("upper_source_receipt"), _utcnow_iso()))
             stored = self._insert_finding(cur, finding)
             self._conn.commit()
-        return stored
+        return stored, notif_id
 
     def marker_of_receipt(self, receipt_id: int) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         with self._lock:
@@ -2045,6 +2212,14 @@ class M2Store:
             pending_count = self._conn.execute(
                 "SELECT COUNT(*) FROM pending_retro WHERE patient_key=?", (patient_key,)
             ).fetchone()[0]
+            # M4 (SF-2 proaktiv): change_payload traegt after_json-Snapshots
+            # (Standort+Zeit-Sequenzen) -> Quasi-Identifikator, zaehlt.
+            payload_count = 0
+            if stay_ids:
+                qm = ",".join("?" * len(stay_ids))
+                payload_count = self._conn.execute(
+                    f"SELECT COUNT(*) FROM change_payload WHERE stay_id IN ({qm})",
+                    stay_ids).fetchone()[0]
             # M3 (SF-2 proaktiv): Marker (stay-gebunden) + Schaetzungen
             # (Event-gebunden, Zeit-Schranken) sind Quasi-Identifikatoren.
             marker_count = 0
@@ -2065,7 +2240,7 @@ class M2Store:
             ).fetchone()[0]
             deleted = (len(event_ids) + len(stay_ids) + seg_count + pending_count
                        + zst_count + len(audit_ids) + notif_count
-                       + marker_count + estimate_count)
+                       + marker_count + estimate_count + payload_count)
 
             if commit and deleted:
                 cur = self._conn.cursor()
@@ -2090,6 +2265,10 @@ class M2Store:
                 if stay_ids:
                     qm = ",".join("?" * len(stay_ids))
                     cur.execute(f"DELETE FROM plausibility_marker WHERE stay_id IN ({qm})", stay_ids)
+                    cur.execute(f"DELETE FROM change_payload WHERE stay_id IN ({qm})", stay_ids)
+                    # stay_revision: reiner Zaehler (kein Inhalt) — mitloeschen
+                    # (M4-G7), zaehlt aber nicht als Inhalts-Objekt.
+                    cur.execute(f"DELETE FROM stay_revision WHERE stay_id IN ({qm})", stay_ids)
                 if event_ids or stay_ids:
                     qe2 = ",".join("?" * len(event_ids)) or "NULL"
                     qs2 = ",".join("?" * len(stay_ids)) or "NULL"
@@ -2576,7 +2755,8 @@ class MapperM2:
                 self._deliver_retro(notif_id)
                 return
         self.store.apply_retro_plan(audit_id, receipt_id, plan,   # (3) Mutation
-                                    resolve_pending_id=pending_id)
+                                    resolve_pending_id=pending_id,
+                                    notification_id=notif_id)     #     + K1-Payload
         self._deliver_retro(notif_id)                             # (4) Zustellung
 
     def _resolve_waiting(self, ev: M2Event) -> None:
@@ -2778,15 +2958,17 @@ class MapperM2:
                             "Grenze zurueckgebaut; das Event faellt auf "
                             "hold_timequality zurueck (M-1-Hold war nie weg)."),
                     created_ts=_utcnow_iso())
-                stored = self.store.apply_derived_plan(
+                stored, notif_id = self.store.apply_derived_plan(
                     pred.stay_id,
                     {"op": RETRO_REMOVE_BOUNDARY, "stay_id": pred.stay_id,
                      "pred_segment_id": pred.segment_id,
                      "succ_segment_id": succ.segment_id},
                     estimate={"receipt_id": ev.receipt_id, "stay_id": None,
                               "status": EST_REVERTED},
-                    finding=finding)
+                    finding=finding,
+                    notify_kind=CHANGE_ESTIMATE_REVERTED)   # wirksam -> Strom (M4-G3)
                 self._notify(stored)
+                self._deliver_retro(notif_id)
                 self._reassess_stay(pred.stay_id)
                 return "reverted"
             if est["status"] == EST_ACTIVE:
@@ -2803,8 +2985,8 @@ class MapperM2:
                          and est["lower_source_receipt"] == bounds["lower_src"]
                          and est["upper_source_receipt"] == bounds["upper_src"])
             if unchanged:
-                return "noop"
-            self.store.apply_derived_plan(
+                return "noop"                       # M4-G3: No-Op bleibt STILL
+            _, notif_id = self.store.apply_derived_plan(
                 bounds["stay_id"],
                 {"op": RETRO_UPDATE_ESTIMATED, "stay_id": bounds["stay_id"],
                  "pred_segment_id": pred.segment_id,
@@ -2814,7 +2996,9 @@ class MapperM2:
                           "status": EST_ACTIVE, "lower_ts": bounds["lower"],
                           "upper_ts": bounds["upper"],
                           "lower_source_receipt": bounds["lower_src"],
-                          "upper_source_receipt": bounds["upper_src"]})
+                          "upper_source_receipt": bounds["upper_src"]},
+                notify_kind=CHANGE_ESTIMATE_UPDATED)   # wirksam -> Strom (M4-G3)
+            self._deliver_retro(notif_id)
             self._reassess_stay(bounds["stay_id"])
             return "updated"
 
@@ -2825,7 +3009,7 @@ class MapperM2:
         split = self.store.get_segment(bounds["lower_segment_id"])
         if split is None or split.end_receipt != bounds["upper_src"]:
             return "noop"                                   # weiter waiting/Hold
-        self.store.apply_derived_plan(
+        _, notif_id = self.store.apply_derived_plan(
             bounds["stay_id"],
             {"op": RETRO_INSERT_ESTIMATED, "stay_id": bounds["stay_id"],
              "split_segment_id": split.segment_id,
@@ -2836,7 +3020,9 @@ class MapperM2:
                       "status": EST_ACTIVE, "lower_ts": bounds["lower"],
                       "upper_ts": bounds["upper"],
                       "lower_source_receipt": bounds["lower_src"],
-                      "upper_source_receipt": bounds["upper_src"]})
+                      "upper_source_receipt": bounds["upper_src"]},
+            notify_kind=CHANGE_ESTIMATE_APPLIED)   # wirksam -> Strom (M4-G3)
+        self._deliver_retro(notif_id)
         self._reassess_stay(bounds["stay_id"])
         return "applied"
 

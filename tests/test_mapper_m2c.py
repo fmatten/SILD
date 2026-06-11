@@ -462,8 +462,15 @@ def test_m2c_v1_erasure_leaves_nothing_relinkable(tmp_path):
     assert store.counts()["retro_notifications"] == 2
 
     result = store.erase_patient(P_BASE, commit=True)
-    # 4 Events + 1 stay + 1 Segment (nach Merge) + 1 ZST + 1 Audit + 1 Notification
-    assert result.deleted == 9, "alle re-verknuepfbaren Zeilen gezaehlt"
+    # 4 Events + 1 stay + 1 Segment (nach Merge) + 1 ZST + 1 Audit +
+    # 1 Notification + 1 change_payload (M4: K1-Strom-Zustand, Quasi-ID)
+    assert result.deleted == 10, "alle re-verknuepfbaren Zeilen gezaehlt"
+    with sqlite3.connect(str(tmp_path / "m2.sqlite")) as c:
+        assert c.execute("SELECT COUNT(*) FROM change_payload WHERE stay_id=?",
+                         (pa_stay,)).fetchone()[0] == 0, "K1-Payload mitgeloescht"
+        assert c.execute("SELECT COUNT(*) FROM stay_revision WHERE stay_id=?",
+                         (pa_stay,)).fetchone()[0] == 0, \
+            "Revisions-Zaehler mitgeloescht (M4-G7, zaehlt nicht als Inhalt)"
     with sqlite3.connect(str(tmp_path / "m2.sqlite")) as c:
         assert c.execute("SELECT COUNT(*) FROM m2_event_zst").fetchone()[0] == 0, \
             "ZST-Referenz des Stornos geloescht (keine verwaiste Quell-Referenz)"
