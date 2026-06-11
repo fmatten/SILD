@@ -243,6 +243,15 @@ def provenance_label(source_field: Optional[Tuple[str, int]]) -> Optional[str]:
     return _PROVENANCE.get(source_field, (PROV_EVENT, str(source_field)))[1]
 
 
+def provenance_code(source_field: Optional[Tuple[str, int]]) -> Optional[str]:
+    """Maschinen-Code (PROV_MEASURED/EVENT/RECORDED) zum genutzten Zeitfeld —
+    dieselbe Quelle wie provenance_label, damit M-2 die Klassifikation nicht
+    dupliziert (eine Tabelle, zwei Sichten)."""
+    if source_field is None:
+        return None
+    return _PROVENANCE.get(source_field, (PROV_EVENT, str(source_field)))[0]
+
+
 @dataclass
 class Classification:
     """Reines G3+G4-Ergebnis (ohne Dedup — das ist die einzige zustandsbehaftete
