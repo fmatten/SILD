@@ -10,12 +10,18 @@ disposition-Tabelle + SILDs intake-DB fuer die Rohbytes) und daraus `stay`
 (Aufenthalt) und `stay_unit_segment` (Lage-Segment) rekonstruiert.
 
 Stufe 1 = der eindeutige VORWAERTSPFAD auf der zeit-sortierten Sequenz mit zwei
-Wartefenstern. AUSDRUECKLICH NICHT hier (benannte Grenzen, nicht still):
-  - Stufe 2: Storno/Rueckwirkung (A08/A11/A12/A13 -> deferred-Tabelle, kein
-    Segment, kein Rewrite), Out-of-Order jenseits des Jitter-Fensters,
-    verspaetete Normal-Events, A01 jenseits des Join-Fensters.
+Wartefenstern. Stufe 2 (M2c, in diesem Modul) = der REVIDIERBARE Intervall-Kern:
+schon festgeschriebene Aufenthalte werden rueckwirkend revidierbar — EIN
+Mechanismus, drei Ausloeser (Storno A11/A12/A13, Update A08, verspaetetes
+Normal-Event), Modell A: Mutation in place, Historie im Audit-Log.
+AUSDRUECKLICH NICHT hier (benannte Grenzen, nicht still):
   - Stufe 3: semantische Plausibilitaet (Entlassung-vor-Aufnahme, Ortswechsel
     im A03) und das Schaetzen fehlender Zeiten.
+  - Rueckruf herausgegebener Resultate: bereits herausgegebene DP-Antworten/
+    Reports sind nicht zurueckrufbar. Der Mapper meldet NUR das Faktum
+    (alt->neu); ob ein herausgegebenes Resultat betroffen ist, entscheidet
+    AION (Auswertungs-Audit/Admin-Konsole, AION-M2-Paket) — bewusste Grenze.
+  - Kritikalitaets-/Domaenen-Bewertung der Rueckwirkung (AION-seitig).
 
 Garantien (jede mit benanntem Test in tests/test_mapper_m2.py):
 
@@ -85,6 +91,55 @@ Garantien (jede mit benanntem Test in tests/test_mapper_m2.py):
          fail-closed mit unresolved-Unterscheidung, dry-run per Default).
          SILD-SF-3-Migrations-Notiz gilt analog.
 
+Stufe-2-Garantien (M2c, jede mit benanntem Test in tests/test_mapper_m2c.py):
+
+  M2c-G1  persist-before-mutate (A1, Reihenfolge ZWINGEND): (1) betroffenen
+          Aufenthalt LESEN, (2) durablen alt->neu-Vermerk (retro_audit:
+          before/after/plan) UND die Benachrichtigung (retro_notification,
+          'pending') committen, (3) DANN in place mutieren, (4) DANN aktiv
+          zustellen. Crash zwischen Vermerk und Mutation -> alter Stand aus
+          before_json rekonstruierbar UND die Benachrichtigung steht aus;
+          der Neustart fuehrt die Mutation genau einmal zu Ende (Resume ueber
+          den Intent, applied-Flag).
+
+  M2c-G2  idempotente Mutation (A2, GEERBT aus Stufe 1 — kein neuer
+          Mechanismus): receipt-Vermerk + Marker-Identitaet (MSH-3/4/10)
+          blockieren Transport-Duplikat und Re-Read nach Neustart; Mutation +
+          Event-Status + audit.applied=1 sind EINE Transaktion -> genau EINE
+          Mutation, EINE Benachrichtigung.
+
+  M2c-G3  drei Storno-Mutationen ueber ZST-3: A11 widerruft den ganzen
+          Aufenthalt (Segmente fallen, stay 'cancelled'), A12 entfernt die
+          A02-Segmentgrenze (Nachbar-Segmente verschmelzen wieder), A13
+          oeffnet das letzte Segment wieder (Ende -> NULL, stay offen).
+
+  M2c-G4  ZST-Zielbindung eindeutig: primaer ZST-2 (MSH-10), disambiguiert
+          durch ZST-3 (Typ) + ZST-4 (Quell-Event-Zeit) + Patient (PID-3) —
+          MSH-10 ist real NICHT eindeutig. Aufhebung NUR bei Treffer in ALLEN
+          Feldern; mehrere Voll-Treffer -> fail-closed Hold.
+
+  M2c-G5  fail-closed: Storno/Update ohne/mit ungueltigem/mehrdeutigem ZST ->
+          Hold + Befund, KEINE Mutation. Die Vier-Felder-Regel
+          (Patient+Visit+Typ+Zeit) ist BEWUSST KEIN Code-Pfad — sie steht nur
+          als Eindeutigkeits-Definition in der Doku (warum ZST Pflicht ist).
+
+  M2c-G6  wartende Negation (Tombstone): gueltiges ZST, Ziel noch nicht da ->
+          durabel persistiert (ueberlebt Neustart). Exakt referenziertes Ziel
+          kommt -> Aufhebung automatisch. TTL (tombstone_wait_ttl,
+          Default 7 d, lernbar) abgelaufen -> PID-freier Befund ("erhielt nie
+          sein Zielereignis"), Negation wird 'expired' markiert und BLEIBT
+          LIEGEN — ein sehr spaet kommendes Ziel wird trotzdem noch storniert.
+
+  M2c-G7  aktive Mapper->AION-Benachrichtigung: Faktum alt->neu reichhaltig
+          (stay, Segmente vorher/nachher), PID-frei, KEINE Bewertung (die
+          macht AION). Durabel VOR der Mutation, zugestellt danach;
+          Zustell-Fehlschlag verliert nichts (bleibt 'pending', redeliver).
+
+  M2c-G8  verspaetetes Normal-Event: A02 nach dem Festschreiben (Grenzzeit in
+          der Vergangenheit des Aufenthalts, auch bei geschlossenem stay) ->
+          derselbe mutate-Kern fuegt das Segment in die Vergangenheit ein
+          (Split an der Grenze) + Benachrichtigung.
+
 AION/M-4-ANFORDERUNGEN — hier NUR dokumentiert, NICHT implementiert:
   (a) Verschmelzung zeitlich angrenzender GLEICHER Kontakt-Einheiten ist eine
       Delta_con-Regel der Compute-Seite. M-2 liefert ehrlich ZWEI Segmente
@@ -118,6 +173,7 @@ Part of: SILD MLLP Sidecar Demo
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
 import threading
@@ -163,12 +219,36 @@ OUT_MISSING_RAW = "missing_raw"          # intake-Rohbytes fehlen (z.B. Erasure)
 
 # Event-Status im Puffer.
 EV_PENDING    = "pending"     # eingelagert, Jitter-Fenster laeuft
-EV_APPLIED    = "applied"     # auf stay/segment angewandt (festgeschrieben)
-EV_DEFERRED   = "deferred"    # Stufe-2-Grenze (Storno/Out-of-Order) — durabel, abfragbar
+EV_APPLIED    = "applied"     # auf stay/segment angewandt (festgeschrieben/mutiert)
+EV_DEFERRED   = "deferred"    # Out-of-Order ohne Ziel-Aufenthalt — durabel, abfragbar
 EV_UNASSIGNED = "unassigned"  # nicht sequenzierbar (Schluessel/Zeit) — Befund erhoben
+EV_TOMBSTONED = "tombstoned"  # M2c-G6: wartende Negation/Update persistiert
+EV_HELD       = "held_failclosed"  # M2c-G5: ZST fehlt/ungueltig/mehrdeutig — KEINE Mutation
 
-# Stufe-2-Trigger: M-1 reicht sie als usable durch, M-2 Stufe 1 wendet sie NICHT an.
+# Rueckwirkungs-Trigger (Stufe 2 / M2c): seit M2c werden sie GEPUFFERT und im
+# Apply ueber den revidierbaren Intervall-Kern aufgeloest (nicht mehr deferred).
 STUFE2_TRIGGERS = frozenset({"A08", "A11", "A12", "A13"})
+
+# --- M2c: ZST — das VERPFLICHTENDE Storno-/Update-Referenzsegment ---------------
+# ZST-1 = Aktion (CANCELS|UPDATES), ZST-2 = MSH-10 des Quell-Events (Primaer-
+# schluessel), ZST-3 = Message Type des Quell-Events (steuert die Mutation),
+# ZST-4 = Event-Zeit des Quell-Events. MSH-10 allein ist real NICHT eindeutig —
+# die Bindung verlangt ALLE Felder + Patient (M2c-G4).
+ZST_CANCELS = "CANCELS"
+ZST_UPDATES = "UPDATES"
+
+# Welcher Quell-Trigger zu welchem Storno gehoert (steuert ueber ZST-3 die Mutation).
+STORNO_SOURCE = {"A11": "A01", "A12": "A02", "A13": "A03"}
+UPDATE_SOURCES = frozenset({"A01", "A02", "A03"})   # A08 korrigiert eine Bewegungsgrenze
+
+# Mutations-Arten des EINEN mutate-Kerns (M2c-G3/G8 + A08).
+RETRO_REVOKE_STAY     = "revoke_stay"       # A11: ganzer Aufenthalt widerrufen
+RETRO_REMOVE_BOUNDARY = "remove_boundary"   # A12: A02-Grenze entfernen (verschmelzen)
+RETRO_REOPEN_LAST     = "reopen_last"       # A13: letztes Segment wieder oeffnen
+RETRO_CHANGE_BOUNDARY = "change_boundary"   # A08: Grenze verschieben
+RETRO_INSERT_BOUNDARY = "insert_boundary"   # verspaetetes A02: Segment in die Vergangenheit
+
+STAY_CANCELLED = "cancelled"                # stay-Status nach A11
 
 # Location-tragende Eintritts-/Bewegungs-Trigger der Stufe 1.
 MOVEMENT_TRIGGERS = frozenset({"A01", "A02", "A03", "A04"})
@@ -182,7 +262,9 @@ PATTERN_C = "C"               # rein ambulant (A04 ohne A01)
 # Befund-Kinds (M-1-Notifier-Kanal, PID-frei).
 FINDING_OPEN_OVERDUE = "m2_open_overdue"    # vermutlich fehlende A03
 FINDING_UNASSIGNED   = "m2_unassigned"      # usable, aber nicht sequenzierbar
-FINDING_OUT_OF_ORDER = "m2_out_of_order"    # A02/A03 ohne offenen stay -> Stufe 2
+FINDING_OUT_OF_ORDER = "m2_out_of_order"    # A02/A03 ohne Ziel-Aufenthalt
+FINDING_RETRO_FAILCLOSED  = "m2_retro_failclosed"   # M2c-G5: ZST fehlt/ungueltig/mehrdeutig
+FINDING_TOMBSTONE_EXPIRED = "m2_tombstone_expired"  # M2c-G6: Ziel kam nie (TTL)
 
 # Kontakt-Einheit-Granularitaet (M2-G4).
 GRAN_WARD = "ward"
@@ -252,6 +334,9 @@ class WindowConfig:
     jitter_window_s: int = 300            # normales Jitter-Fenster (klein)
     join_window_s:   int = 6 * 3600       # Notaufnahme-Join-Fenster A04->A01 (groesser)
     open_overdue:    OpenOverdueThresholds = field(default_factory=OpenOverdueThresholds)
+    # M2c-G6: wie lange eine wartende Negation auf ihr Zielereignis wartet,
+    # bevor der Befund kommt (sie bleibt danach LIEGEN). Aus delay_log lernbar.
+    tombstone_wait_ttl_s: int = 7 * 24 * 3600
 
 
 @dataclass
@@ -264,6 +349,34 @@ class VisitFieldConfig:
     Patient + Join-Fenster.
     """
     candidates: List[int] = field(default_factory=lambda: [19, 15])
+
+
+@dataclass
+class ZstRef:
+    """M2c: die geparste ZST-Referenz eines Stornos/Updates (PID-frei)."""
+    action:         str            # ZST-1 (CANCELS|UPDATES)
+    target_msh10:   str            # ZST-2 — MSH-10 des Quell-Events
+    target_type:    str            # ZST-3 — Message Type des Quell-Events (roh)
+    target_trigger: str            # Trigger aus ZST-3 (letzte ^-Komponente)
+    target_ts_iso:  Optional[str]  # ZST-4 als ISO (None = nicht parsebar)
+
+
+def parse_zst(segments: list) -> Optional[ZstRef]:
+    """Erste ZST-Zeile der Nachricht, oder None. Die Validierung (Pflichtfelder,
+    Typ-Konsistenz) passiert im Apply — fail-closed dort, nicht hier."""
+    for seg in segments:
+        if seg["type"] != "ZST":
+            continue
+        f = seg["fields"]
+        action = f[1].strip() if len(f) > 1 else ""
+        msh10  = f[2].strip() if len(f) > 2 else ""
+        ttype  = f[3].strip() if len(f) > 3 else ""
+        ts_raw = f[4].strip() if len(f) > 4 else ""
+        dt = parse_hl7_ts(ts_raw)
+        trigger = ttype.split("^")[-1].strip() if ttype else ""
+        return ZstRef(action=action, target_msh10=msh10, target_type=ttype,
+                      target_trigger=trigger, target_ts_iso=dt.isoformat() if dt else None)
+    return None
 
 
 @dataclass
@@ -285,6 +398,7 @@ class M2Event:
     provenance:    Optional[str]          # measured | event | recorded_substitute
     provenance_label: Optional[str]
     arrival_ts:    str = ""               # ISO-UTC Ankunfts-Wanduhr (M-2-Eingang)
+    zst:           Optional[ZstRef] = None  # M2c: Storno-/Update-Referenz (falls vorhanden)
 
 
 @dataclass
@@ -363,7 +477,9 @@ def parse_usable_event(
 
     ts_raw, src = resolve_event_time(segments, trigger, time_fields)
     dt = parse_hl7_ts(ts_raw)
+    zst = parse_zst(segments)
     return M2Event(
+        zst=zst,
         receipt_id=receipt_id,
         trigger=trigger,
         marker=extract_marker(raw),
@@ -382,6 +498,107 @@ def parse_usable_event(
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+# ===========================================================================
+# M2c: der EINE mutate-Kern — pure Plan-Logik (kein Store-Zugriff, kein Lock).
+# Der Plan ist deterministisch und wird VOR der Mutation durabel vermerkt
+# (M2c-G1); apply_plan_to_snapshot berechnet daraus den NACHHER-Stand fuer
+# Audit + Benachrichtigung, M2Store.apply_retro_plan fuehrt dieselben
+# Operationen auf der DB aus (eine Transaktion).
+# ===========================================================================
+
+def apply_plan_to_snapshot(before: dict, plan: dict) -> dict:
+    """NACHHER-Stand rein aus VORHER-Snapshot + Plan (pure, testbar). Snapshots
+    sind PID-frei: {'stay': {...}, 'segments': [...]}, keine Patient/Visit."""
+    after = json.loads(json.dumps(before))   # tiefe Kopie
+    stay, segs = after["stay"], after["segments"]
+    op = plan["op"]
+    if op == RETRO_REVOKE_STAY:
+        after["segments"] = []
+        stay["status"] = STAY_CANCELLED
+    elif op == RETRO_REMOVE_BOUNDARY:
+        pred = next(s for s in segs if s["segment_id"] == plan["pred_segment_id"])
+        succ = next(s for s in segs if s["segment_id"] == plan["succ_segment_id"])
+        pred["end_ts"], pred["end_provenance"], pred["end_receipt"] = \
+            succ["end_ts"], succ["end_provenance"], succ["end_receipt"]
+        after["segments"] = [s for s in segs if s["segment_id"] != succ["segment_id"]]
+    elif op == RETRO_REOPEN_LAST:
+        seg = next(s for s in segs if s["segment_id"] == plan["segment_id"])
+        seg["end_ts"] = seg["end_provenance"] = seg["end_receipt"] = None
+        stay["status"] = "open"
+        stay["closed_event_ts"] = None
+        stay["closed_receipt"] = None
+    elif op == RETRO_CHANGE_BOUNDARY:
+        rid, new_ts, new_prov = plan["target_receipt"], plan["new_ts"], plan["new_provenance"]
+        for s in segs:
+            if s["start_receipt"] == rid:
+                s["start_ts"], s["start_provenance"] = new_ts, new_prov
+            if s["end_receipt"] == rid:
+                s["end_ts"], s["end_provenance"] = new_ts, new_prov
+        if stay.get("opened_receipt") == rid:
+            stay["opened_event_ts"] = new_ts
+        if stay.get("closed_receipt") == rid:
+            stay["closed_event_ts"] = new_ts
+    elif op == RETRO_INSERT_BOUNDARY:
+        split = next(s for s in segs if s["segment_id"] == plan["split_segment_id"])
+        new_seg = {
+            "segment_id": None, "stay_id": split["stay_id"], "seq": split["seq"] + 1,
+            "pv1_3_raw": plan["pv1_3_raw"], "ward": plan["ward"],
+            "room": plan["room"], "bed": plan["bed"],
+            "start_ts": plan["t"], "start_provenance": plan["provenance"],
+            "start_receipt": plan["event_receipt"],
+            "end_ts": split["end_ts"], "end_provenance": split["end_provenance"],
+            "end_receipt": split["end_receipt"],
+        }
+        for s in segs:
+            if s["seq"] > split["seq"]:
+                s["seq"] += 1
+        split["end_ts"], split["end_provenance"], split["end_receipt"] = \
+            plan["t"], plan["provenance"], plan["event_receipt"]
+        segs.append(new_seg)
+        segs.sort(key=lambda s: s["seq"])
+    else:
+        raise ValueError(f"unbekannte Mutations-Art {op!r}")
+    return after
+
+
+def _segment_lines(segments: List[dict]) -> List[str]:
+    if not segments:
+        return ["  (keine — Aufenthalt storniert)"]
+    return [
+        f"  {s['seq']}. {s['pv1_3_raw'] or '-'} "
+        f"[{s['start_ts']} .. {s['end_ts'] or 'OFFEN'}]"
+        for s in segments
+    ]
+
+
+def build_retro_notification(kind: str, stay_id: int, before: dict, after: dict,
+                             marker) -> Tuple[str, str]:
+    """M2c-G7: PID-freie Mapper->AION-Benachrichtigung. Faktum alt->neu
+    (stay, Segmente vorher/nachher), KEINE Domaenen-/Kritikalitaets-Bewertung —
+    die macht AION. Marker = Quellsystem-Metadaten (MSH-3/4/10), kein PID."""
+    msh3, msh4, msh10 = marker
+    subject = f"[SILD M-2] Rueckwirkung: {kind} (stay {stay_id})"
+    body = "\n".join([
+        "SILD M-2 Mapper — Rueckwirkung auf einen festgeschriebenen Aufenthalt.",
+        "Inhalt: Faktum alt->neu, PID-frei, bewertungsfrei.",
+        "",
+        f"stay:             {stay_id}",
+        f"Mutation:         {kind}",
+        f"Ausloeser-Marker: {msh3 or '-'}|{msh4 or '-'}|{msh10 or '-'}",
+        f"stay-Status:      {before['stay']['status']} -> {after['stay']['status']}",
+        "Segmente VORHER:",
+        *_segment_lines(before["segments"]),
+        "Segmente NACHHER:",
+        *_segment_lines(after["segments"]),
+        "",
+        "Hinweis: bereits herausgegebene Resultate (DP-Antwort/Report) sind nicht",
+        "zurueckrufbar; ob ein herausgegebenes Resultat betroffen ist und wie",
+        "kritisch die Aenderung ist, entscheidet AION (Auswertungs-Audit/Admin-",
+        "Konsole, AION-M2-Paket) — bewusste Mapper-Grenze.",
+    ])
+    return subject, body
 
 
 # ===========================================================================
@@ -483,6 +700,69 @@ CREATE TABLE IF NOT EXISTS delay_log (
     delay_seconds INTEGER,
     window        TEXT NOT NULL
 );
+-- M2c: ZST-Referenz pro Rueckwirkungs-Event (PID-frei: nur Schluessel/Typ/Zeit).
+-- Eigene Tabelle statt Spalten auf m2_event: bestehende Stufe-1-DBs brauchen so
+-- KEIN ALTER (SILD-SF-3-Migrations-Stil — neue Tabellen entstehen per IF NOT EXISTS).
+CREATE TABLE IF NOT EXISTS m2_event_zst (
+    receipt_id      INTEGER PRIMARY KEY,
+    action          TEXT,
+    target_msh10    TEXT,
+    target_type     TEXT,
+    target_trigger  TEXT,
+    target_event_ts TEXT
+);
+-- M2c-G1 (A1): der durable alt->neu-Vermerk — committet VOR der Mutation.
+-- before/after/plan tragen kein explizites PID-Feld, ABER Standort+Zeit-
+-- SEQUENZEN (Quasi-Identifikator, SF-2-Lektion) + die stay_id des Patienten
+-- -> erasure-PFLICHTIG (erase_patient loescht die Zeilen des Patienten mit).
+CREATE TABLE IF NOT EXISTS retro_audit (
+    audit_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id  INTEGER NOT NULL UNIQUE,
+    kind        TEXT NOT NULL,
+    stay_id     INTEGER NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json  TEXT NOT NULL,
+    plan_json   TEXT NOT NULL,
+    applied     INTEGER NOT NULL DEFAULT 0,
+    created_ts  TEXT NOT NULL,
+    applied_ts  TEXT
+);
+-- M2c-G7: aktive Mapper->AION-Benachrichtigung — durabel VOR der Mutation
+-- ('pending'), zugestellt danach. Inhalt PID-frei (kein Schluessel/Name/Visit),
+-- aber der Body rendert Segment-Sequenzen (Quasi-Identifikator wie retro_audit)
+-- -> ebenfalls erasure-pflichtig.
+CREATE TABLE IF NOT EXISTS retro_notification (
+    notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id        INTEGER NOT NULL,
+    receipt_id      INTEGER NOT NULL,
+    subject         TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    delivery_status TEXT NOT NULL DEFAULT 'pending',
+    delivery_info   TEXT,
+    created_ts      TEXT NOT NULL,
+    delivered_ts    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_retro_notif_delivery ON retro_notification (delivery_status);
+-- M2c-G6: wartende Negation/Update (Tombstone). patient_key -> PID (Erasure!).
+CREATE TABLE IF NOT EXISTS pending_retro (
+    pending_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id         INTEGER NOT NULL,
+    trigger            TEXT NOT NULL,
+    action             TEXT NOT NULL,
+    target_msh10       TEXT NOT NULL,
+    target_trigger     TEXT NOT NULL,
+    target_event_ts    TEXT NOT NULL,
+    patient_key        TEXT NOT NULL,
+    new_boundary_ts    TEXT,
+    new_boundary_prov  TEXT,
+    status             TEXT NOT NULL DEFAULT 'waiting',  -- waiting|resolved|expired
+    created_arrival_ts TEXT NOT NULL,
+    resolved_receipt   INTEGER,
+    resolved_ts        TEXT,
+    expired_ts         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pending_retro_target  ON pending_retro (target_msh10, status);
+CREATE INDEX IF NOT EXISTS idx_pending_retro_patient ON pending_retro (patient_key);
 -- M2-G6: Befunde — zuerst durabel ('pending'), dann aktiv gemeldet (M-1-Kanal).
 CREATE TABLE IF NOT EXISTS finding (
     finding_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -605,6 +885,14 @@ class M2Store:
                     "VALUES (?,?,?,?,?,?)",
                     (ev.receipt_id, ev.trigger, ev.event_ts, ev.arrival_ts, delay_s, window),
                 )
+                if ev.zst is not None:                    # M2c: Referenz im selben Commit
+                    cur.execute(
+                        "INSERT OR REPLACE INTO m2_event_zst "
+                        "(receipt_id, action, target_msh10, target_type, target_trigger, "
+                        " target_event_ts) VALUES (?,?,?,?,?,?)",
+                        (ev.receipt_id, ev.zst.action, ev.zst.target_msh10,
+                         ev.zst.target_type, ev.zst.target_trigger, ev.zst.target_ts_iso),
+                    )
             stored = self._insert_finding(cur, finding)
             self._conn.commit()
         return stored
@@ -912,6 +1200,327 @@ class M2Store:
             self._conn.commit()
         return stored
 
+# --- M2c: Rueckwirkungs-Kern (Erkennung / Intent / Mutation / Tombstone) -----
+    # Lock-Disziplin (Stufe-1-Deadlock-Lektion, verschaerft): jede Methode haelt
+    # den Lock genau einmal; Callbacks sind PUR; Lookups, die eine Mutation
+    # braucht, laufen IN derselben Transaktion.
+
+    def get_zst(self, receipt_id: int) -> Optional[ZstRef]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT action, target_msh10, target_type, target_trigger, target_event_ts "
+                "FROM m2_event_zst WHERE receipt_id=?", (receipt_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return ZstRef(action=row[0] or "", target_msh10=row[1] or "",
+                      target_type=row[2] or "", target_trigger=row[3] or "",
+                      target_ts_iso=row[4])
+
+    def find_target_events(self, msh10: str, trigger: str, event_ts_iso: str,
+                           patient_key: str) -> List[int]:
+        """M2c-G4: Zielbindung NUR bei Treffer in ALLEN Feldern — MSH-10 (ueber
+        den Vermerk), Typ, Quell-Event-Zeit UND Patient. Nur APPLIED Events
+        (die Segmente erzeugt haben) sind stornierbar."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT e.receipt_id FROM m2_event e "
+                "JOIN m2_processed p ON p.receipt_id = e.receipt_id "
+                "WHERE p.msh10=? AND e.trigger=? AND e.event_ts=? AND e.patient_key=? "
+                "AND e.status=? ORDER BY e.receipt_id",
+                (msh10, trigger, event_ts_iso, patient_key, EV_APPLIED),
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    _SNAPSHOT_SEG_COLS = ["segment_id", "stay_id", "seq", "pv1_3_raw", "ward",
+                          "room", "bed", "start_ts", "start_provenance",
+                          "start_receipt", "end_ts", "end_provenance", "end_receipt"]
+
+    def _snapshot_with_cur(self, cur, stay_id: int) -> Optional[dict]:
+        """Snapshot INNERHALB einer laufenden Transaktion/Lock (kein eigenes
+        Locking — Deadlock-Lektion). PID-frei: kein Patient, keine Visit."""
+        stay = cur.execute(
+            "SELECT pattern, status, opened_receipt, opened_event_ts, "
+            "closed_receipt, closed_event_ts FROM stay WHERE stay_id=?", (stay_id,),
+        ).fetchone()
+        if stay is None:
+            return None
+        segs = cur.execute(
+            f"SELECT {self._SEG_COLS} FROM segment WHERE stay_id=? ORDER BY seq",
+            (stay_id,),
+        ).fetchall()
+        return {
+            "stay": {"stay_id": stay_id, "pattern": stay[0], "status": stay[1],
+                     "opened_receipt": stay[2], "opened_event_ts": stay[3],
+                     "closed_receipt": stay[4], "closed_event_ts": stay[5]},
+            "segments": [dict(zip(self._SNAPSHOT_SEG_COLS, r)) for r in segs],
+        }
+
+    def stay_snapshot(self, stay_id: int) -> Optional[dict]:
+        """PID-FREIER Snapshot (kein Patient-Schluessel, keine Visit) — speist
+        Audit (alt), Plan-Vorschau (neu) und Benachrichtigung (M2c-G1/G7)."""
+        with self._lock:
+            return self._snapshot_with_cur(self._conn, stay_id)
+
+    def stay_id_for_receipt(self, receipt_id: int) -> Optional[int]:
+        """Der Aufenthalt, dessen Grenze das Event gesetzt hat (Segment-Start/
+        -Ende oder stay-Eroeffnung/-Schliessung)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT stay_id FROM segment WHERE start_receipt=? OR end_receipt=? "
+                "LIMIT 1", (receipt_id, receipt_id),
+            ).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT stay_id FROM stay WHERE opened_receipt=? OR closed_receipt=? "
+                    "LIMIT 1", (receipt_id, receipt_id),
+                ).fetchone()
+        return row[0] if row else None
+
+    def boundary_segments(self, receipt_id: int) -> Tuple[Optional[SegmentRow], Optional[SegmentRow]]:
+        """(Vorgaenger, Nachfolger) der durch das Event gesetzten Grenze:
+        Vorgaenger = Segment, das es schloss; Nachfolger = Segment, das es oeffnete."""
+        pred = self._segment_rows("end_receipt=?", (receipt_id,))
+        succ = self._segment_rows("start_receipt=?", (receipt_id,))
+        return (pred[0] if pred else None, succ[0] if succ else None)
+
+    def open_segment_of(self, stay_id: int) -> Optional[SegmentRow]:
+        rows = self._segment_rows(
+            "stay_id=? AND end_ts IS NULL ORDER BY seq DESC LIMIT 1", (stay_id,))
+        return rows[0] if rows else None
+
+    def segment_containing(self, stay_id: int, ts_iso: str) -> Optional[SegmentRow]:
+        rows = self._segment_rows(
+            "stay_id=? AND start_ts<=? AND (end_ts IS NULL OR end_ts>?) "
+            "ORDER BY seq DESC LIMIT 1", (stay_id, ts_iso, ts_iso))
+        return rows[0] if rows else None
+
+    def closed_stay_containing(self, patient_key: str, ts_iso: str,
+                               visit_id: Optional[str]) -> Optional[StayRow]:
+        """M2c-G8: geschlossener Aufenthalt des Patienten, in dessen Zeitspanne
+        das verspaetete Event faellt (Visit-Match bevorzugt)."""
+        stays = self._stay_rows(
+            "patient_key=? AND status='closed' AND opened_event_ts<=? AND closed_event_ts>? "
+            "ORDER BY opened_event_ts DESC, stay_id DESC", (patient_key, ts_iso, ts_iso))
+        if not stays:
+            return None
+        if visit_id:
+            for s in stays:
+                if s.visit_id == visit_id:
+                    return s
+        return stays[0]
+
+    def get_retro_intent(self, receipt_id: int) -> Optional[dict]:
+        """A1/A2-Resume: existiert schon ein durabler Vermerk fuer dieses Event?"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT a.audit_id, a.applied, a.plan_json, n.notification_id "
+                "FROM retro_audit a JOIN retro_notification n ON n.audit_id = a.audit_id "
+                "WHERE a.receipt_id=?", (receipt_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {"audit_id": row[0], "applied": bool(row[1]),
+                "plan": json.loads(row[2]), "notification_id": row[3]}
+
+    def record_retro_intent(self, receipt_id: int, kind: str, stay_id: int,
+                            before: dict, after: dict, plan: dict,
+                            subject: str, body: str) -> Tuple[int, int]:
+        """M2c-G1 Schritt 2: alt->neu-Vermerk + Benachrichtigung 'pending' in
+        EINEM durablen Commit — VOR der Mutation. Die Mutation selbst passiert
+        in apply_retro_plan (separater Commit, Resume-faehig)."""
+        ts = _utcnow_iso()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            cur.execute(
+                "INSERT INTO retro_audit (receipt_id, kind, stay_id, before_json, "
+                "after_json, plan_json, applied, created_ts) VALUES (?,?,?,?,?,?,0,?)",
+                (receipt_id, kind, stay_id, json.dumps(before, ensure_ascii=False),
+                 json.dumps(after, ensure_ascii=False),
+                 json.dumps(plan, ensure_ascii=False), ts),
+            )
+            audit_id = cur.lastrowid
+            cur.execute(
+                "INSERT INTO retro_notification (audit_id, receipt_id, subject, body, "
+                "delivery_status, created_ts) VALUES (?,?,?,?, 'pending', ?)",
+                (audit_id, receipt_id, subject, body, ts),
+            )
+            notif_id = cur.lastrowid
+            self._conn.commit()
+        return audit_id, notif_id
+
+    def apply_retro_plan(self, audit_id: int, receipt_id: int, plan: dict,
+                         *, resolve_pending_id: Optional[int] = None) -> None:
+        """M2c-G1 Schritt 3: die Mutation in place — Mutation + audit.applied=1
+        + Event-Status (+ ggf. Tombstone-Aufloesung) als EINE Transaktion
+        (M2c-G2: genau einmal; Crash davor laesst alles wiederholbar).
+
+        EIN CODE-PFAD (SF-1-Lektion): die DB-Mutation IST apply_plan_to_snapshot
+        — derselbe pure Plan-Anwender, der den vermerkten/gemeldeten
+        after-Stand berechnet hat, wird hier auf den AKTUELLEN Stand angewandt
+        und generisch zurueckgeschrieben (Update per segment_id, Delete fuer
+        entfallene, Insert fuer neue Zeilen). Es gibt KEINE zweite, parallele
+        Implementierung der Plan-Ops — gemeldetes 'nachher' == DB-Stand per
+        Konstruktion."""
+        ts = _utcnow_iso()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            try:
+                before = self._snapshot_with_cur(cur, plan["stay_id"])
+                if before is None:
+                    raise ValueError(f"stay {plan['stay_id']} existiert nicht (mehr)")
+                after = apply_plan_to_snapshot(before, plan)
+            except (StopIteration, ValueError) as e:
+                self._conn.rollback()
+                raise ValueError(f"Plan passt nicht zum aktuellen Stand: {e}") from e
+            # stay zurueckschreiben
+            st = after["stay"]
+            cur.execute(
+                "UPDATE stay SET pattern=?, status=?, opened_receipt=?, "
+                "opened_event_ts=?, closed_receipt=?, closed_event_ts=? WHERE stay_id=?",
+                (st["pattern"], st["status"], st["opened_receipt"],
+                 st["opened_event_ts"], st["closed_receipt"], st["closed_event_ts"],
+                 plan["stay_id"]))
+            # Segmente zurueckschreiben: Update/Delete/Insert per segment_id
+            after_ids = {s["segment_id"] for s in after["segments"]
+                         if s["segment_id"] is not None}
+            for s in before["segments"]:
+                if s["segment_id"] not in after_ids:
+                    cur.execute("DELETE FROM segment WHERE segment_id=?",
+                                (s["segment_id"],))
+            for s in after["segments"]:
+                if s["segment_id"] is not None:
+                    cur.execute(
+                        "UPDATE segment SET seq=?, pv1_3_raw=?, ward=?, room=?, bed=?, "
+                        "start_ts=?, start_provenance=?, start_receipt=?, "
+                        "end_ts=?, end_provenance=?, end_receipt=? WHERE segment_id=?",
+                        (s["seq"], s["pv1_3_raw"], s["ward"], s["room"], s["bed"],
+                         s["start_ts"], s["start_provenance"], s["start_receipt"],
+                         s["end_ts"], s["end_provenance"], s["end_receipt"],
+                         s["segment_id"]))
+                else:
+                    cur.execute(
+                        "INSERT INTO segment (stay_id, seq, pv1_3_raw, ward, room, bed, "
+                        "start_ts, start_provenance, start_receipt, end_ts, "
+                        "end_provenance, end_receipt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (plan["stay_id"], s["seq"], s["pv1_3_raw"], s["ward"],
+                         s["room"], s["bed"], s["start_ts"], s["start_provenance"],
+                         s["start_receipt"], s["end_ts"], s["end_provenance"],
+                         s["end_receipt"]))
+            cur.execute(
+                "UPDATE retro_audit SET applied=1, applied_ts=? WHERE audit_id=?",
+                (ts, audit_id))
+            self._mark_applied(cur, receipt_id, plan["op"], status=EV_APPLIED)
+            if resolve_pending_id is not None:
+                cur.execute(
+                    "UPDATE pending_retro SET status='resolved', resolved_receipt=?, "
+                    "resolved_ts=? WHERE pending_id=?",
+                    (plan.get("target_receipt") or plan.get("event_receipt"),
+                     ts, resolve_pending_id))
+            self._conn.commit()
+
+    def record_tombstone(self, ev: M2Event, zst: ZstRef,
+                         *, new_boundary_ts: Optional[str] = None,
+                         new_boundary_prov: Optional[str] = None) -> int:
+        """M2c-G6: wartende Negation/Update persistieren + Event als
+        'tombstoned' markieren — EIN Commit (ueberlebt Neustart)."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            cur.execute(
+                "INSERT INTO pending_retro (receipt_id, trigger, action, target_msh10, "
+                "target_trigger, target_event_ts, patient_key, new_boundary_ts, "
+                "new_boundary_prov, status, created_arrival_ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?, 'waiting', ?)",
+                (ev.receipt_id, ev.trigger, zst.action, zst.target_msh10,
+                 zst.target_trigger, zst.target_ts_iso, ev.patient_key,
+                 new_boundary_ts, new_boundary_prov, ev.arrival_ts))
+            pending_id = cur.lastrowid
+            self._mark_applied(cur, ev.receipt_id,
+                               f"wartet auf Zielereignis MSH-10={zst.target_msh10}",
+                               status=EV_TOMBSTONED)
+            self._conn.commit()
+        return pending_id
+
+    def find_waiting_negations(self, msh10: str, trigger: str, event_ts_iso: str,
+                               patient_key: str) -> List[dict]:
+        """Wartende (UND expired liegende — M2c-G6) Negationen/Updates, die
+        EXAKT dieses Event referenzieren (alle Felder)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT pending_id, receipt_id, trigger, action, new_boundary_ts, "
+                "new_boundary_prov FROM pending_retro "
+                "WHERE target_msh10=? AND target_trigger=? AND target_event_ts=? "
+                "AND patient_key=? AND status IN ('waiting','expired') "
+                "ORDER BY pending_id",
+                (msh10, trigger, event_ts_iso, patient_key),
+            ).fetchall()
+        return [
+            {"pending_id": r[0], "receipt_id": r[1], "trigger": r[2], "action": r[3],
+             "new_boundary_ts": r[4], "new_boundary_prov": r[5]}
+            for r in rows
+        ]
+
+    def expire_tombstones(
+        self, arrival_cutoff_iso: str,
+        *, build_finding: Callable[[dict, Tuple[Optional[str], Optional[str], Optional[str]]], Finding],
+    ) -> List[Finding]:
+        """M2c-G6 TTL: wartende Negationen aelter als die TTL -> 'expired' +
+        Befund (durabel 'pending'), die Zeile BLEIBT LIEGEN. Marker-Lookup in
+        derselben Transaktion, Callback pur (Deadlock-Lektion)."""
+        ts = _utcnow_iso()
+        stored: List[Finding] = []
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            rows = cur.execute(
+                "SELECT pending_id, receipt_id, trigger, target_msh10 FROM pending_retro "
+                "WHERE status='waiting' AND created_arrival_ts<=? ORDER BY pending_id",
+                (arrival_cutoff_iso,),
+            ).fetchall()
+            for pending_id, receipt_id, trigger, target_msh10 in rows:
+                mrow = cur.execute(
+                    "SELECT msh3, msh4, msh10 FROM m2_processed WHERE receipt_id=?",
+                    (receipt_id,),
+                ).fetchone()
+                marker = (mrow[0], mrow[1], mrow[2]) if mrow else (None, None, None)
+                f = self._insert_finding(cur, build_finding(
+                    {"pending_id": pending_id, "receipt_id": receipt_id,
+                     "trigger": trigger, "target_msh10": target_msh10}, marker))
+                cur.execute(
+                    "UPDATE pending_retro SET status='expired', expired_ts=? "
+                    "WHERE pending_id=?", (ts, pending_id))
+                stored.append(f)
+            self._conn.commit()
+        return stored
+
+    def get_retro_notification(self, notification_id: int) -> Optional[Tuple[str, str, str]]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT subject, body, delivery_status FROM retro_notification "
+                "WHERE notification_id=?", (notification_id,),
+            ).fetchone()
+        return (row[0], row[1], row[2]) if row else None
+
+    def set_retro_delivery(self, notification_id: int, ok: bool, info: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE retro_notification SET delivery_status=?, delivery_info=?, "
+                "delivered_ts=? WHERE notification_id=?",
+                ("delivered" if ok else "failed", info,
+                 _utcnow_iso() if ok else None, notification_id))
+
+    def pending_retro_notifications(self) -> List[Tuple[int, str, str]]:
+        """M2c-G7: (noch) nicht zugestellte AION-Benachrichtigungen — Backlog."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT notification_id, subject, body FROM retro_notification "
+                "WHERE delivery_status != 'delivered' ORDER BY notification_id"
+            ).fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
     def marker_of_receipt(self, receipt_id: int) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         with self._lock:
             row = self._conn.execute(
@@ -945,12 +1554,21 @@ class M2Store:
 
     def erase_patient(self, patient_key: str, *, commit: bool = False) -> EraseResult:
         """
-        Loescht ALLE Zeilen, die `patient_key` tragen: stays + deren Segmente +
-        Event-Pufferzeilen. delay_log / m2_processed / finding sind PID-frei
-        (Receipt/Marker/Zaehler) und bleiben als inhaltsfreies Audit erhalten —
-        exakt die M-1/SILD-Aufteilung. Fail-closed: Event-Zeilen mit
-        pkey_status='unresolved' (PID-3 vorhanden, unlesbar) zaehlen als
-        Restrisiko -> incomplete_uncertain. dry-run per Default.
+        Loescht ALLE Zeilen, die `patient_key` tragen ODER auf seine Aufenthalte/
+        Events rueckverknuepfbar sind: stays + Segmente + Event-Pufferzeilen +
+        wartende Negationen (pending_retro) + ZST-Referenzen (m2_event_zst) +
+        Rueckwirkungs-Audit/-Benachrichtigungen (retro_audit/retro_notification).
+
+        SF-2-Lektion (verifiziert, nicht angenommen): retro_audit/-notification
+        tragen zwar KEIN explizites PID-Feld, aber Standort+Zeit-SEQUENZEN
+        (before/after-Snapshots bzw. deren gerenderten Body) plus die stay_id,
+        die vor der Loeschung zum Patienten fuehrte — ein Quasi-Identifikator
+        wie die SF-2-Order-Nummern -> erasure-pflichtig, NICHT "inhaltsfrei".
+        Wirklich inhaltsfrei (Receipt/Marker/Zaehler) und deshalb als Audit
+        erhalten bleiben nur: delay_log, m2_processed, m2_seen_marker, finding.
+
+        Fail-closed: Event-Zeilen mit pkey_status='unresolved' (PID-3 vorhanden,
+        unlesbar) zaehlen als Restrisiko -> incomplete_uncertain. dry-run per Default.
         """
         with self._lock:
             event_ids = [r[0] for r in self._conn.execute(
@@ -961,27 +1579,61 @@ class M2Store:
                 "SELECT stay_id FROM stay WHERE patient_key=? ORDER BY stay_id", (patient_key,),
             ).fetchall()]
             seg_count = 0
+            zst_count = 0
+            audit_ids: List[int] = []
             if stay_ids:
                 qmarks = ",".join("?" * len(stay_ids))
                 seg_count = self._conn.execute(
                     f"SELECT COUNT(*) FROM segment WHERE stay_id IN ({qmarks})", stay_ids
                 ).fetchone()[0]
+            if event_ids:
+                qm = ",".join("?" * len(event_ids))
+                zst_count = self._conn.execute(
+                    f"SELECT COUNT(*) FROM m2_event_zst WHERE receipt_id IN ({qm})",
+                    event_ids).fetchone()[0]
+            # Audit-Zeilen des Patienten: ueber seine stays ODER seine Events.
+            qs = ",".join("?" * len(stay_ids)) or "NULL"
+            qe = ",".join("?" * len(event_ids)) or "NULL"
+            audit_ids = [r[0] for r in self._conn.execute(
+                f"SELECT audit_id FROM retro_audit WHERE stay_id IN ({qs}) "
+                f"OR receipt_id IN ({qe})", (*stay_ids, *event_ids),
+            ).fetchall()]
+            notif_count = 0
+            if audit_ids or event_ids:
+                qa = ",".join("?" * len(audit_ids)) or "NULL"
+                notif_count = self._conn.execute(
+                    f"SELECT COUNT(*) FROM retro_notification WHERE audit_id IN ({qa}) "
+                    f"OR receipt_id IN ({qe})", (*audit_ids, *event_ids),
+                ).fetchone()[0]
+            pending_count = self._conn.execute(
+                "SELECT COUNT(*) FROM pending_retro WHERE patient_key=?", (patient_key,)
+            ).fetchone()[0]
             unresolvable = self._conn.execute(
                 "SELECT COUNT(*) FROM m2_event WHERE pkey_status=?", (PKEY_UNRESOLVED,)
             ).fetchone()[0]
-            deleted = len(event_ids) + len(stay_ids) + seg_count
+            deleted = (len(event_ids) + len(stay_ids) + seg_count + pending_count
+                       + zst_count + len(audit_ids) + notif_count)
 
-            if commit and (event_ids or stay_ids):
+            if commit and deleted:
                 cur = self._conn.cursor()
                 cur.execute("BEGIN")
                 if event_ids:
                     qm = ",".join("?" * len(event_ids))
                     cur.execute(f"DELETE FROM m2_event_patient_key WHERE receipt_id IN ({qm})", event_ids)
                     cur.execute(f"DELETE FROM m2_event WHERE receipt_id IN ({qm})", event_ids)
+                    cur.execute(f"DELETE FROM m2_event_zst WHERE receipt_id IN ({qm})", event_ids)
                 if stay_ids:
                     qm = ",".join("?" * len(stay_ids))
                     cur.execute(f"DELETE FROM segment WHERE stay_id IN ({qm})", stay_ids)
                     cur.execute(f"DELETE FROM stay WHERE stay_id IN ({qm})", stay_ids)
+                if audit_ids:
+                    qa = ",".join("?" * len(audit_ids))
+                    cur.execute(f"DELETE FROM retro_notification WHERE audit_id IN ({qa})", audit_ids)
+                    cur.execute(f"DELETE FROM retro_audit WHERE audit_id IN ({qa})", audit_ids)
+                if event_ids:
+                    qm = ",".join("?" * len(event_ids))
+                    cur.execute(f"DELETE FROM retro_notification WHERE receipt_id IN ({qm})", event_ids)
+                cur.execute("DELETE FROM pending_retro WHERE patient_key=?", (patient_key,))
                 self._conn.commit()
 
         status = "incomplete_uncertain" if unresolvable > 0 else "complete"
@@ -1021,7 +1673,10 @@ class M2Store:
             c = {}
             for name, table in (("processed", "m2_processed"), ("events", "m2_event"),
                                 ("stays", "stay"), ("segments", "segment"),
-                                ("findings", "finding"), ("delays", "delay_log")):
+                                ("findings", "finding"), ("delays", "delay_log"),
+                                ("retro_audits", "retro_audit"),
+                                ("retro_notifications", "retro_notification"),
+                                ("tombstones", "pending_retro")):
                 c[name] = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return c
 
@@ -1156,13 +1811,9 @@ class MapperM2:
 
         window = "join" if ev.trigger in ("A04", "A01") else "jitter"
 
-        # Stufe-2-Trigger: durabel abgelegt, NICHT angewandt (kein Rewrite hier).
-        if ev.trigger in STUFE2_TRIGGERS:
-            self.store.ingest_event(
-                ev, OUT_DEFERRED, status=EV_DEFERRED, window=window,
-                status_reason=f"ADT^{ev.trigger} rueckwirkend intervall-veraendernd — Stufe 2",
-            )
-            return OUT_DEFERRED
+        # Rueckwirkungs-Trigger (A08/A11/A12/A13) werden seit Stufe 2 (M2c)
+        # GEPUFFERT wie Bewegungen und im Apply ueber den revidierbaren
+        # Intervall-Kern aufgeloest — nicht mehr pauschal deferred.
 
         # Nicht sequenzierbar (kein Patient-Schluessel / keine Bewegungszeit) ->
         # Befund, nie still verworfen. (Zeit sollte fuer M-1-usable immer da
@@ -1187,17 +1838,31 @@ class MapperM2:
 
     # --- Stage 2: Apply (Jitter-Fenster, zeit-sortiert) -------------------------
 
-    def apply_ripe(self, now: Optional[datetime] = None) -> int:
+    def apply_ripe(self, now: Optional[datetime] = None, *,
+                   _crash_after_intent_at: Optional[int] = None) -> int:
         now = now or self.now_fn()
         cutoff = (now - _td(self.windows.jitter_window_s)).isoformat()
         applied = 0
         for ev in self.store.ripe_pending_events(cutoff):
-            self._apply_event(ev)
+            self._apply_event(ev, _crash_after_intent_at=_crash_after_intent_at)
             applied += 1
         return applied
 
-    def _apply_event(self, ev: M2Event) -> None:
-        """Die Stufe-1-Zustandsmaschine — eine durable Transaktion pro Event."""
+    def _apply_event(self, ev: M2Event, *,
+                     _crash_after_intent_at: Optional[int] = None) -> None:
+        """Zustandsmaschine: Stufe-1-Vorwaertspfad + M2c-Rueckwirkungs-Erkennung
+        (M-2c-1) — ein eintreffendes Event, das einen schon festgeschriebenen
+        Aufenthalt betrifft (Storno/Update/verspaetet), geht in den EINEN
+        mutate-Kern. Eine durable Transaktion pro Event."""
+        crash = "after_intent" if _crash_after_intent_at == ev.receipt_id else None
+
+        if ev.trigger in STORNO_SOURCE:                  # A11/A12/A13 (M2c)
+            self._apply_storno(ev, _crash=crash)
+            return
+        if ev.trigger == "A08":                          # Update (M2c)
+            self._apply_update(ev, _crash=crash)
+            return
+
         if ev.trigger == "A04":
             # Eintritt der ambulanten/Notaufnahme-Phase: VORLAEUFIGE Episode.
             self.store.open_stay_with_segment(ev, PATTERN_PENDING)
@@ -1211,34 +1876,299 @@ class MapperM2:
                 self.store.advance_segment(bind.stay_id, ev, set_pattern=PATTERN_B)
             else:
                 # Muster A: direkt stationaer. Ein A01 JENSEITS des Join-
-                # Fensters bindet bewusst NICHT (Stufe 2) -> neuer stay.
+                # Fensters bindet bewusst NICHT -> neuer stay.
                 self.store.open_stay_with_segment(ev, PATTERN_A)
+            self._resolve_waiting(ev)
             return
 
         if ev.trigger == "A02":
             stay = self._best_open_stay(ev)
-            if stay is None:
-                self._defer_out_of_order(ev, "A02 ohne offenen Aufenthalt (Out-of-Order/Stufe 2)")
+            if stay is not None:
+                open_seg = self.store.open_segment_of(stay.stay_id)
+                if open_seg is None or ev.event_ts >= open_seg.start_ts:
+                    # Stufe-1-Vorwaertspfad: A02 erzeugt IMMER ein Segment —
+                    # auch Quelle=Ziel (Gap 2: verschmolzen wird AION-seitig).
+                    self.store.advance_segment(stay.stay_id, ev)
+                    self._resolve_waiting(ev)
+                    return
+                # M2c-G8: Grenzzeit liegt VOR dem offenen Segment ->
+                # verspaetetes Event in die Vergangenheit einfuegen.
+                self._retro_insert(ev, stay.stay_id, _crash=crash)
                 return
-            # M2-G3: A02 erzeugt IMMER ein Segment — auch Quelle=Ziel (Gap 2:
-            # verschmolzen wird, wenn ueberhaupt, AION-seitig).
-            self.store.advance_segment(stay.stay_id, ev)
+            stay = self.store.closed_stay_containing(ev.patient_key, ev.event_ts,
+                                                     ev.visit_id)
+            if stay is not None:
+                # M2c-G8: verspaetetes A02 in einen GESCHLOSSENEN Aufenthalt.
+                self._retro_insert(ev, stay.stay_id, _crash=crash)
+                return
+            self._defer_out_of_order(ev, "A02 ohne Ziel-Aufenthalt (Out-of-Order)")
             return
 
         if ev.trigger == "A03":
             stay = self._best_open_stay(ev)
             if stay is None:
-                self._defer_out_of_order(ev, "A03 ohne offenen Aufenthalt (Out-of-Order/Stufe 2)")
+                self._defer_out_of_order(ev, "A03 ohne offenen Aufenthalt (Out-of-Order)")
                 return
             # A03 auf einer noch-pending Episode beweist den ambulanten
             # Abschluss -> Muster C (frueher als der Fensterablauf).
             set_pattern = PATTERN_C if stay.pattern == PATTERN_PENDING else None
             self.store.close_stay(stay.stay_id, ev, set_pattern=set_pattern)
+            self._resolve_waiting(ev)
             return
 
         # Defensiv: unbekannter Bewegungs-Trigger landet nie hier (Ingest
         # verzweigt vorher) — laut statt still.
-        self._defer_out_of_order(ev, f"Trigger {ev.trigger} in Stufe 1 nicht anwendbar")
+        self._defer_out_of_order(ev, f"Trigger {ev.trigger} nicht anwendbar")
+
+    # --- M2c: Storno / Update / verspaetet — der EINE mutate-Kern ---------------
+
+    def _hold_failclosed(self, ev: M2Event, reason: str) -> None:
+        """M2c-G5: fail-closed Hold + Befund, KEINE Mutation. Die Vier-Felder-
+        Regel (Patient+Visit+Typ+Zeit) ist hier BEWUSST KEIN Fallback-Code-Pfad:
+        sie definiert nur in der Doku, was Eindeutigkeit hiesse — operativ ist
+        ZST Pflicht, alles andere haelt an."""
+        msh3, msh4, msh10 = self.store.marker_of_receipt(ev.receipt_id)
+        finding = Finding(
+            receipt_id=ev.receipt_id, kind=FINDING_RETRO_FAILCLOSED, trigger=ev.trigger,
+            msh3=msh3, msh4=msh4, msh10=msh10,
+            reason=f"fail-closed, KEINE Mutation: {reason}",
+            created_ts=_utcnow_iso(),
+        )
+        stored = self.store.mark_event(ev.receipt_id, EV_HELD, reason, finding=finding)
+        self._notify(stored)
+
+    def _validate_zst(self, ev: M2Event, expected_action: str,
+                      expected_triggers) -> Tuple[Optional[ZstRef], Optional[str]]:
+        """ZST-Pflichtpruefung (M2c-G5). Liefert (zst, None) oder (None, Problem)."""
+        zst = self.store.get_zst(ev.receipt_id)
+        if zst is None or zst.action != expected_action or not zst.target_msh10:
+            return None, (f"ZST fehlt/ungueltig (ZST-1={expected_action} + "
+                          f"ZST-2 [Quell-MSH-10] sind Pflicht)")
+        if zst.target_trigger not in expected_triggers:
+            return None, (f"ZST-3 ({zst.target_type or '-'}) passt nicht zu "
+                          f"{ev.trigger} (erwartet {'/'.join(sorted(expected_triggers))})")
+        if zst.target_ts_iso is None:
+            return None, "ZST-4 (Event-Zeit des Quell-Events) fehlt/nicht parsebar"
+        if ev.patient_key is None:
+            return None, "Patient (PID-3) fehlt — die Zielbindung braucht ALLE Felder"
+        return zst, None
+
+    def _derive_storno_plan(self, storno_trigger: str, target_receipt: int
+                            ) -> Tuple[Optional[str], Optional[int], Optional[dict], Optional[str]]:
+        """(kind, stay_id, plan, problem) fuer die drei Storno-Mutationen (M2c-G3)."""
+        if storno_trigger == "A11":
+            stay_id = self.store.stay_id_for_receipt(target_receipt)
+            if stay_id is None:
+                return None, None, None, "Ziel-A01 gefunden, aber kein zugehoeriger Aufenthalt"
+            stay = self.store.get_stay(stay_id)
+            if stay is None or stay.status == STAY_CANCELLED:
+                return None, None, None, f"Aufenthalt {stay_id} ist bereits storniert"
+            return RETRO_REVOKE_STAY, stay_id, {"op": RETRO_REVOKE_STAY,
+                                                "stay_id": stay_id}, None
+        if storno_trigger == "A12":
+            pred, succ = self.store.boundary_segments(target_receipt)
+            if pred is None or succ is None:
+                return None, None, None, ("Ziel-A02 gefunden, aber seine Segmentgrenze "
+                                          "existiert nicht (mehr)")
+            return RETRO_REMOVE_BOUNDARY, pred.stay_id, {
+                "op": RETRO_REMOVE_BOUNDARY, "stay_id": pred.stay_id,
+                "pred_segment_id": pred.segment_id, "succ_segment_id": succ.segment_id,
+                "target_receipt": target_receipt}, None
+        if storno_trigger == "A13":
+            pred, _ = self.store.boundary_segments(target_receipt)
+            if pred is None:
+                return None, None, None, ("Ziel-A03 gefunden, aber kein durch es "
+                                          "geschlossenes Segment")
+            stay = self.store.get_stay(pred.stay_id)
+            if stay is None or stay.status != "closed":
+                return None, None, None, f"Aufenthalt {pred.stay_id} ist nicht geschlossen"
+            return RETRO_REOPEN_LAST, pred.stay_id, {
+                "op": RETRO_REOPEN_LAST, "stay_id": pred.stay_id,
+                "segment_id": pred.segment_id, "target_receipt": target_receipt}, None
+        return None, None, None, f"{storno_trigger} ist kein Storno-Trigger"
+
+    def _apply_storno(self, ev: M2Event, *, _crash: Optional[str] = None) -> None:
+        """M2c §3: EIN Storno-Pfad — gueltiges ZST + Ziel da -> mutieren;
+        Ziel fehlt -> wartende Negation; ZST kaputt/mehrdeutig -> fail-closed."""
+        expected = STORNO_SOURCE[ev.trigger]
+        zst, problem = self._validate_zst(ev, ZST_CANCELS, {expected})
+        if problem:
+            self._hold_failclosed(ev, problem)
+            return
+        targets = self.store.find_target_events(
+            zst.target_msh10, expected, zst.target_ts_iso, ev.patient_key)
+        if len(targets) > 1:
+            self._hold_failclosed(
+                ev, f"Zielbindung mehrdeutig: {len(targets)} Events treffen "
+                    f"MSH-10={zst.target_msh10} in ALLEN Feldern")
+            return
+        if not targets:
+            self.store.record_tombstone(ev, zst)          # M2c-G6
+            return
+        kind, stay_id, plan, problem = self._derive_storno_plan(ev.trigger, targets[0])
+        if problem:
+            self._hold_failclosed(ev, problem)
+            return
+        self._run_retro(ev.receipt_id, kind, stay_id, plan, _crash=_crash)
+
+    def _apply_update(self, ev: M2Event, *, _crash: Optional[str] = None) -> None:
+        """A08: dieselbe ZST-Bindung (ZST-1=UPDATES), dieselbe Aufloesung — die
+        Mutation ist 'Grenze verschieben': jede Grenzseite, die das referenzierte
+        Quell-Event gesetzt hat, bekommt die NEUE Zeit (= Bewegungszeit des A08).
+        Designentscheidung (an echten Daten zu verifizieren): auch das Update
+        braucht ZST — eine Patient+Visit-Heuristik waere genau der verbotene
+        Vier-Felder-Pfad."""
+        zst, problem = self._validate_zst(ev, ZST_UPDATES, UPDATE_SOURCES)
+        if problem:
+            self._hold_failclosed(ev, problem)
+            return
+        targets = self.store.find_target_events(
+            zst.target_msh10, zst.target_trigger, zst.target_ts_iso, ev.patient_key)
+        if len(targets) > 1:
+            self._hold_failclosed(
+                ev, f"Zielbindung mehrdeutig: {len(targets)} Events treffen "
+                    f"MSH-10={zst.target_msh10} in ALLEN Feldern")
+            return
+        if not targets:
+            self.store.record_tombstone(ev, zst, new_boundary_ts=ev.event_ts,
+                                        new_boundary_prov=ev.provenance)
+            return
+        stay_id = self.store.stay_id_for_receipt(targets[0])
+        if stay_id is None:
+            self._hold_failclosed(ev, "Ziel-Event gefunden, aber keine Grenze dazu")
+            return
+        plan = {"op": RETRO_CHANGE_BOUNDARY, "stay_id": stay_id,
+                "target_receipt": targets[0], "new_ts": ev.event_ts,
+                "new_provenance": ev.provenance}
+        self._run_retro(ev.receipt_id, RETRO_CHANGE_BOUNDARY, stay_id, plan,
+                        _crash=_crash)
+
+    def _retro_insert(self, ev: M2Event, stay_id: int,
+                      *, _crash: Optional[str] = None) -> None:
+        """M2c-G8: verspaetetes A02 — Split des Segments, in dessen Zeitspanne
+        die Grenze faellt (mutate-Kern, gleiche A1/A2-Disziplin)."""
+        seg = self.store.segment_containing(stay_id, ev.event_ts)
+        if seg is None:
+            self._defer_out_of_order(
+                ev, "verspaetetes A02: Grenzzeit liegt ausserhalb des Aufenthalts")
+            return
+        if seg.start_ts == ev.event_ts:
+            self._hold_failclosed(
+                ev, "verspaetetes A02: Grenzzeit faellt exakt auf eine bestehende "
+                    "Grenze — keine eindeutige Einfuege-Stelle (Stufe 3)")
+            return
+        plan = {"op": RETRO_INSERT_BOUNDARY, "stay_id": stay_id,
+                "split_segment_id": seg.segment_id, "t": ev.event_ts,
+                "provenance": ev.provenance, "event_receipt": ev.receipt_id,
+                "pv1_3_raw": ev.pv1_3_raw, "ward": ev.ward, "room": ev.room,
+                "bed": ev.bed}
+        self._run_retro(ev.receipt_id, RETRO_INSERT_BOUNDARY, stay_id, plan,
+                        _crash=_crash)
+        self._resolve_waiting(ev)
+
+    def _run_retro(self, receipt_id: int, kind: str, stay_id: int, plan: dict,
+                   *, pending_id: Optional[int] = None,
+                   _crash: Optional[str] = None) -> None:
+        """A1, die ZWINGENDE Reihenfolge: (1) lesen -> (2) alt->neu + Benach-
+        richtigung DURABEL vermerken -> (3) mutieren -> (4) zustellen.
+        Resume-faehig (A2): existiert der Intent schon, wird NICHT erneut
+        vermerkt; ist er schon angewandt, wird nur noch zugestellt."""
+        intent = self.store.get_retro_intent(receipt_id)
+        if intent is None:
+            before = self.store.stay_snapshot(stay_id)            # (1) lesen
+            after = apply_plan_to_snapshot(before, plan)          #     neu (pur)
+            marker = self.store.marker_of_receipt(receipt_id)
+            subject, body = build_retro_notification(kind, stay_id, before, after, marker)
+            audit_id, notif_id = self.store.record_retro_intent(  # (2) Vermerk
+                receipt_id, kind, stay_id, before, after, plan, subject, body)
+            if _crash == "after_intent":
+                raise SimulatedCrash(
+                    "crash zwischen Vermerk und Mutation (M2c-G1)")
+        else:
+            audit_id, notif_id = intent["audit_id"], intent["notification_id"]
+            plan = intent["plan"]
+            if intent["applied"]:                                 # nur Zustellung offen
+                self._deliver_retro(notif_id)
+                return
+        self.store.apply_retro_plan(audit_id, receipt_id, plan,   # (3) Mutation
+                                    resolve_pending_id=pending_id)
+        self._deliver_retro(notif_id)                             # (4) Zustellung
+
+    def _resolve_waiting(self, ev: M2Event) -> None:
+        """M2c-G6: kommt das exakt referenzierte Zielereignis (alle Felder),
+        wird eine wartende (oder schon expired liegende) Negation/Update
+        automatisch angewandt."""
+        marker = self.store.marker_of_receipt(ev.receipt_id)
+        msh10 = marker[2]
+        if not msh10 or ev.patient_key is None or ev.event_ts is None:
+            return
+        for p in self.store.find_waiting_negations(msh10, ev.trigger,
+                                                   ev.event_ts, ev.patient_key):
+            if p["action"] == ZST_CANCELS:
+                kind, stay_id, plan, problem = self._derive_storno_plan(
+                    p["trigger"], ev.receipt_id)
+            else:                                         # UPDATES (A08)
+                stay_id = self.store.stay_id_for_receipt(ev.receipt_id)
+                problem = None if stay_id is not None else "keine Grenze zum Ziel"
+                kind = RETRO_CHANGE_BOUNDARY
+                plan = {"op": RETRO_CHANGE_BOUNDARY, "stay_id": stay_id,
+                        "target_receipt": ev.receipt_id,
+                        "new_ts": p["new_boundary_ts"],
+                        "new_provenance": p["new_boundary_prov"]}
+            if problem:
+                msh3, msh4, m10 = self.store.marker_of_receipt(p["receipt_id"])
+                stored = self.store.mark_event(
+                    p["receipt_id"], EV_TOMBSTONED, problem,
+                    finding=Finding(receipt_id=p["receipt_id"],
+                                    kind=FINDING_RETRO_FAILCLOSED,
+                                    trigger=p["trigger"], msh3=msh3, msh4=msh4,
+                                    msh10=m10, reason=f"Negation unanwendbar: {problem}",
+                                    created_ts=_utcnow_iso()))
+                self._notify(stored)
+                continue
+            self._run_retro(p["receipt_id"], kind, stay_id, plan,
+                            pending_id=p["pending_id"])
+
+    def expire_tombstones(self, now: Optional[datetime] = None) -> int:
+        """M2c-G6 TTL: Befund (PID-frei, technisches Faktum), Negation bleibt
+        als 'expired' LIEGEN — ein sehr spaetes Ziel wird trotzdem storniert."""
+        now = now or self.now_fn()
+        cutoff = (now - _td(self.windows.tombstone_wait_ttl_s)).isoformat()
+        days = self.windows.tombstone_wait_ttl_s // 86400
+
+        def _build(pending: dict, marker) -> Finding:
+            msh3, msh4, msh10 = marker
+            return Finding(
+                receipt_id=pending["receipt_id"], kind=FINDING_TOMBSTONE_EXPIRED,
+                trigger=pending["trigger"], msh3=msh3, msh4=msh4, msh10=msh10,
+                reason=(f"Storno/Update fuer MSH-10={pending['target_msh10']} erhielt "
+                        f"nie sein Zielereignis (TTL {days}d). Negation bleibt als "
+                        f"'expired' liegen — ein spaeter eintreffendes Ziel wird noch "
+                        f"storniert."),
+                created_ts=_utcnow_iso(),
+            )
+
+        stored = self.store.expire_tombstones(cutoff, build_finding=_build)
+        for f in stored:
+            self._notify(f)
+        return len(stored)
+
+    def _deliver_retro(self, notification_id: int) -> None:
+        """M2c-G7 Schritt 4: aktive Zustellung NACH der Mutation; Fehlschlag
+        verliert nichts (Zeile bleibt pending/failed, redeliver_pending_retro)."""
+        row = self.store.get_retro_notification(notification_id)
+        if row is None or row[2] == "delivered":
+            return
+        ok, info = self.notifier.send(row[0], row[1])
+        self.store.set_retro_delivery(notification_id, ok, info)
+
+    def redeliver_pending_retro(self) -> int:
+        n = 0
+        for notif_id, subject, body in self.store.pending_retro_notifications():
+            ok, info = self.notifier.send(subject, body)
+            self.store.set_retro_delivery(notif_id, ok, info)
+            n += 1
+        return n
 
     def _pending_stay_in_join_window(self, ev: M2Event) -> Optional[StayRow]:
         """Juengste offene A04-Episode des Patienten, deren Ankunfts-Abstand zum
@@ -1347,8 +2277,11 @@ class MapperM2:
         applied   = self.apply_ripe(now)
         finalized = self.finalize_patterns(now)
         overdue   = self.check_open_durations(now)
+        expired   = self.expire_tombstones(now)           # M2c-G6 TTL-Sweep
+        redelivered = self.redeliver_pending_retro()      # M2c-G7 Backlog
         return {"ingested": ingested, "applied": applied,
-                "finalized_c": len(finalized), "overdue_findings": overdue}
+                "finalized_c": len(finalized), "overdue_findings": overdue,
+                "tombstones_expired": expired, "retro_redelivered": redelivered}
 
 
 def _td(seconds: int) -> timedelta:
@@ -1395,6 +2328,9 @@ def main(argv=None) -> int:
     p.add_argument("--icu-wards", default=",".join(OpenOverdueThresholds.icu_ward_prefixes),
                    help="Komma-Liste der Intensiv-Ward-Praefixe (STANDORTSPEZIFISCH, "
                         "an echten Daten zu verifizieren)")
+    p.add_argument("--tombstone-ttl", type=int, default=WindowConfig.tombstone_wait_ttl_s,
+                   help="M2c: wie lange eine wartende Negation auf ihr Zielereignis "
+                        "wartet, bevor der Befund kommt (Sekunden; sie bleibt liegen)")
     p.add_argument("--smtp-host", default="", help="SMTP-Server (leer -> laute Warnung, nur lokal)")
     p.add_argument("--smtp-port", type=int, default=25)
     p.add_argument("--smtp-from", default="")
@@ -1410,7 +2346,8 @@ def main(argv=None) -> int:
     )
     windows  = WindowConfig(jitter_window_s=args.jitter_window,
                             join_window_s=args.join_window,
-                            open_overdue=thresholds)
+                            open_overdue=thresholds,
+                            tombstone_wait_ttl_s=args.tombstone_ttl)
     notifier = build_notifier(_build_smtp_config(args))
     reader   = M1OutputReader(args.m1_db, args.intake_db)
     store    = M2Store(args.m2_db)

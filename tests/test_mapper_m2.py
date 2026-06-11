@@ -560,16 +560,16 @@ def test_m2_trap_pv1_4_e_is_not_inpatient(tmp_path):
     assert klass == "O", "Klasse bleibt PV1-2='O' trotz PV1-4='E'"
 
 
-def test_m2_stufe2_storno_deferred_not_applied(tmp_path):
-    """A11 (Storno) ist durch M-1 usable, aber rueckwirkend -> Stufe 2: M-2
-    Stufe 1 legt es durabel ab (deferred) und wendet es NICHT an."""
-    store, mapper, clock, _ = _direct(tmp_path)
-    outcomes = _feed(mapper, [STORNO_A11])
-    assert outcomes == [OUT_DEFERRED]
-    clock.advance(mapper.windows.jitter_window_s + 1)
-    assert mapper.apply_ripe() == 0
+def test_m2_storno_without_zst_failclosed(tmp_path):
+    """Seit Stufe 2 (M2c) werden Storni aufgeloest — aber NUR mit ZST: ein A11
+    OHNE ZST haelt fail-closed an (Hold + Befund, M2c-G5) und mutiert NICHTS.
+    (Frueher Stufe-1-Grenze 'deferred'; Verhalten bewusst geaendert.)"""
+    store, mapper, clock, notifier = _direct(tmp_path)
+    _feed_apply(mapper, clock, [STORNO_A11])
     assert store.counts()["stays"] == 0 and store.counts()["segments"] == 0
-    assert store.event_status(1)[0] == EV_DEFERRED, "durabel + abfragbar, nicht still verworfen"
+    assert store.counts()["retro_audits"] == 0, "KEINE Mutation ohne ZST"
+    assert store.event_status(1)[0] == m2mod.EV_HELD, "fail-closed Hold, nicht still"
+    assert any(m2mod.FINDING_RETRO_FAILCLOSED in s for s, _ in notifier.sent)
 
 
 def test_m2_a02_without_open_stay_is_deferred_finding(tmp_path):
