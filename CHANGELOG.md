@@ -5,6 +5,38 @@ Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.0.0
 
 ---
 
+## [Unreleased] — persist-before-ack durabler v2-Eingang (Variante A)
+
+### Hinzugefügt
+- `sild_durable_store.py` — durabler v2-Eingang **persist-before-ack** (Variante A):
+  `frame → persist(fsync) → analyse → ack → forward`. SQLite (stdlib),
+  `journal_mode=WAL, synchronous=FULL`. Garantien G1–G6 mit benannten Tests.
+- **Default an** (fail-secure): Durability ist Standard; `--no-durable` schaltet
+  ab (nur Demo/Test) und gibt eine laute Nicht-durabel-Warnung aus. Store-Pfad
+  konfigurierbar via `--durable-store` (Default: Geschwister-Datei der `--log`).
+- **Store-Erasure (SILD-SF-1)**: `sild_durable_store.py erase` — patientenbezogene
+  Löschung, Schlüssel = PID-3/MR/`Authority|ID` (standortkonfigurierbar), dry-run
+  per Default + `--commit` explizit, fail-closed `incomplete_uncertain` bei nicht
+  zuordenbaren Zeilen, Lösch-Audit ohne Inhalt, X-weg/Y-intakt.
+- `tests/test_durability_v2.py` + `tests/durability_vectors_v2.py` — 20 benannte
+  Beweise (G1–G6, Patienten-Schlüssel, Erasure). `docs/security-findings.md` mit
+  SILD-SF-1 (Erasure gebaut, Backup dokumentiert) und SILD-SF-2 (indirekte
+  Identifier im JSONL).
+
+### Geändert
+- **ACK-Semantik unter persist-before-ack** (betrifft jetzt alle, da Default an):
+  NAK-AE ist **signal-and-duplicate, NICHT reject**. Die Nachricht ist beim ACK
+  bereits durabel; AE bei CRITICAL (K-2, FM-4 §5.2) signalisiert den Verlust,
+  lehnt aber nicht ab — Sender-Retry erzeugt ein (downstream dedup-bares) Duplikat.
+- Frame-Vollständigkeit: der durable Pfad liest strikt (VT … FS CR); kein
+  Teil-Frame wird durabel geackt.
+
+### Sicherheit
+- **G6 (Verschlüsselung at-rest)**: laut delegiert an den Betreiber (RFC §11.1) —
+  Startup-Warnung, keine rohe Payload im JSONL. „G6 grün" ≠ „PII-frei": indirekte
+  Identifier (Order-Nummern in Finding-Locations) siehe SILD-SF-2.
+---
+
 ## [1.1.0] — 2026-05-30 — HL7v2 B2-Conformance-Batch (21/21 Vektoren)
 
 ### Hinzugefügt

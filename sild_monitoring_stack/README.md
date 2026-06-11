@@ -125,6 +125,169 @@ Exponiert vier Metric-Familien:
 | `sild_forward_decisions_total` | Counter | decision, message_type | Forward-Entscheidungen |
 | `sild_filter_latency_seconds` | Histogram | message_type | Verarbeitungslatenz |
 
+### persist-before-ack — durabler v2-Eingang (Default an, Variante A)
+
+Der v2-Eingang läuft **standardmäßig durabel** (fail-secure, wie `AUTH_ENABLED`:
+im Zweifel durabel): `frame(vollständig) → persist(fsync) → analyse → ack →
+forward`. Keine *angenommene* Nachricht geht über einen Absturz verloren —
+schlimmstenfalls entsteht ein Duplikat (vom Sender-Retry), nie ein Verlust.
+Garantien G1–G6 und ihre Tests: `sild_durable_store.py` bzw.
+`tests/test_durability_v2.py`.
+
+```bash
+# Default: durabel. Store-Pfad = <Verzeichnis von --log>/sild_intake.sqlite,
+# oder explizit:
+python sild_mllp_filter.py --listen 2575 --forward localhost:2576 \
+                           --log sild_reports.jsonl \
+                           --durable-store /data/sild_intake.sqlite
+
+# Durability abschalten (NUR Demo/Test — gibt eine laute Warnung aus):
+python sild_mllp_filter.py --listen 2575 --no-durable
+```
+
+- **Store:** SQLite, `journal_mode=WAL, synchronous=FULL` (fsync pro Commit).
+- **ACK-Latenz:** jetzt durch einen fsync untergrenzt, über Verbindungen am
+  SQLite-Single-Writer serialisiert — die RFC-§10-Zahlen (p99 < 2 ms, „no
+  persistent store") gelten für diesen Pfad nicht.
+
+**ACK-Semantik unter persist-before-ack (wichtig — betrifft jetzt alle, da
+Default an):** Ein NAK-AE ist **signal-and-duplicate, NICHT reject**. Die
+Nachricht ist beim ACK bereits durabel angenommen; ein AE bei CRITICAL (K-2,
+FM-4 §5.2) *signalisiert* der Quelle einen kritischen Verlust, *lehnt aber nicht
+ab* — der übliche Sender-Retry erzeugt dann ein Duplikat (downstream über den
+Idempotenz-Marker dedup-bar). Wer SILD im alten „Reject"-Verständnis betreibt,
+muss das wissen: AE heißt hier „durabel gespeichert + kritisch", nicht „verworfen".
+
+**⚠️ Verschlüsselung at-rest:** Der Store enthält **rohe v2-Payload inkl. PID/PHI
+im Klartext**. SILD verschlüsselt sie **nicht** — das ist Sache des Betreibers
+(RFC §11.1): Store auf ein verschlüsseltes Volume legen. Der Filter gibt beim
+Start eine entsprechende Warnung aus.
+
+**Löschung (SILD-SF-1, in diesem Stand adressiert):** patientenbezogene Löschung
+über `sild_durable_store.py erase` — dry-run per Default, `--commit` explizit
+(destruktiver PID-Pfad). Patienten-Schlüssel = PID-3, MR-typisiert,
+`Authority|ID` (standortkonfigurierbar). Fail-closed: eine Zeile ohne auflösbaren
+Schlüssel (technische/kaputte Nachricht) kann nicht zugeordnet werden → Status
+`incomplete_uncertain` + Restrisiko-Zähler, nie still „gelöscht". Das
+Lösch-Protokoll trägt Schlüssel/Zähler/Status/Zeit — **nie** die Payload.
+
+```bash
+# dry-run (löscht nichts):
+python sild_durable_store.py erase --store /data/sild_intake.sqlite \
+                                   --patient-key "HOSP|P-2026-12345"
+# echte Löschung + Audit-Zeile:
+python sild_durable_store.py erase --store /data/sild_intake.sqlite \
+                                   --patient-key "HOSP|P-2026-12345" \
+                                   --commit --erase-log /data/sild_erase.jsonl
+```
+
+> **G6-Ehrlichkeit:** „G6 grün" heißt *kein DIREKTER* Identifikator (Name/PID-5)
+> im JSONL — **nicht** „PII-frei". Finding-Locations können INDIREKT
+> personenbeziehbare Identifier enthalten (Order-Nummern aus ORC-2/OBR-2,3). Das
+> JSONL untersteht denselben Zugriffskontrollen wie der Store. Siehe SILD-SF-1.
+
+### `sild-mapper-m1` — Intake-Sichter (M-1, read-only)
+
+M-1 ist die Stufe **zwischen** SILDs durablem Intake und dem (noch nicht
+gebauten) Intervall-Aufbau M-2. M-1 liest SILDs `sild_intake.sqlite` **nur
+lesend** (`mode=ro` + `PRAGMA query_only` — kann SILDs Store nicht beschreiben),
+sichtet jede Nachricht zustandsleicht und entscheidet, **was an M-2 weitergereicht
+wird** — ohne Intervalle zu bauen, Stornos zu widerrufen oder Zeiten zu schätzen
+(alles M-2). Garantien G1–G5 und ihre Tests: `sild_mapper_m1.py` bzw.
+`tests/test_mapper_m1.py`.
+
+- **G1 Speichern-vor-Cursor:** pro Intake-Receipt erst den Vermerk durabel
+  committen, dann den Lese-Cursor vorrücken. Crash davor → kein Skip; Crash
+  dazwischen → idempotenter Re-Scan (kein Verlust, keine Doppel-Weiterleitung).
+- **G2 Duplikat-Unterdrückung:** Dedup über den vollständigen Marker
+  (MSH-3/4/10), durabel über Neustarts. Unvollständiger Marker → **nie**
+  unterdrückt.
+- **G3 Relevanz-Filter:** relevant = `ADT^A01/A02/A03` (intervall-bestimmend) +
+  `A08/A11/A12/A13` (Update + Storni, rückwirkend verändernd → durchgereicht).
+  Nicht-ADT (ORU/RDE) und bekannte, nicht intervall-relevante ADT (A04/A05/…) →
+  ignoriert (bewusste, erweiterbare Grenze). **Aber** eine ADT mit fehlendem/
+  unlesbarem Trigger-Code ist nicht „irrelevant", sondern kaputt →
+  `hold_malformed` + Befund (unparsebar ≠ irrelevant).
+- **G4 Zeitqualität (syntaktisch, drei-Wege):** `usable` / `hold_timequality`
+  (Zeit fehlt/absurd, Struktur ok) / `hold_malformed` (kein parsebares ADT). Das
+  maßgebliche **Bewegungs-Zeitfeld ist je Trigger konfigurierbar**
+  (`TimeFieldConfig`):
+  - **A01 Aufnahme → PV1-44**, **A03 Entlassung → PV1-45** (eindeutig), mit
+    EVN-6 → EVN-2 als Fallback (das gebündelte `samples/adt_a01_admission.hl7`
+    trägt die Zeit nur in EVN-2 — der Fallback fängt das ab; EVN ist derselbe
+    Ereigniszeitpunkt, keine fremde Zeit).
+  - **A02 Verlegung → ZBE-2 → EVN-6, ausdrücklich NICHT PV1-44** (bei Verlegung
+    oft nicht neu gesetzt → bliebe die Aufnahmezeit = falsch). Greift weder ZBE-2
+    noch EVN-6 → `hold_timequality` + Befund, **nie spekulativ auf PV1-44
+    datieren**. *Zu verifizieren an echten Verlegungsdaten:* die SILD-Samples
+    enthalten kein ZBE und keine A02-Verlegung.
+  - **A08/A11/A12/A13 (Update/Storni):** Zeitfeld profilabhängig, final in **M-2**
+    geklärt (Storno-Verarbeitung = M-2). M-1 klassifiziert nur syntaktisch gegen
+    ein generisches Default-Feld (EVN-6 → EVN-2).
+
+  > **EVN-2 = zu verifizieren (wie A02/ZBE):** EVN-2 ist *Recorded Date/Time*
+  > (Erfassungszeit), **nicht** Event Occurred — als Bewegungszeit-Fallback an
+  > echten Daten zu verifizieren (gleiche dürftige Sample-Lage wie ZBE/A02).
+  >
+  > **Zeit-Provenienz (Anfang der für M-2 vorgemerkten Provenienz):** jedes
+  > `usable`-Event trägt mit, **woher** die genutzte Zeit stammt — `PV1-44/45` /
+  > `ZBE-2` = *gemessene Bewegungszeit*, `EVN-6` = *Ereigniszeit*, `EVN-2` =
+  > *Erfassungs-Ersatz*. Das Feld steht durabel am Vermerk und wird an M-2
+  > weitergereicht, damit M-2/AION eine Ersatzzeit **nicht** als gemessenes
+  > Faktum in Δ_con verrechnet. (PID-frei: nur Feldherkunft.)
+- **G5 Notifier — Speichern VOR Melden, PID-frei.** Siehe nächster Absatz.
+
+```bash
+python sild_mapper_m1.py \
+    --intake-db /data/sild_intake.sqlite \    # SILDs Store, nur lesend
+    --mapper-db /data/sild_mapper.sqlite \    # eigene DB (gemountetes Volume)
+    --poll-interval 5 \
+    --smtp-host smtp.example.org --smtp-from m1@example.org \
+    --smtp-to ops@example.org --smtp-tls
+# Ein einzelner Durchlauf (z. B. Cron/CI):  ... --once
+```
+
+> **⚠️ SMTP ist ein Pflicht-Konfigurationsschritt (G5).** Ohne `--smtp-host`
+> gibt M-1 beim Start eine **laute Warnung** aus („Daten-Qualitäts-
+> Benachrichtigung NICHT konfiguriert — Befunde werden nur lokal gespeichert,
+> niemand wird aktiv benachrichtigt") und stellt **nicht zu** — die Befunde
+> bleiben durabel und werden mit `redeliver_pending()` nachgereicht, sobald SMTP
+> steht. Kein stilles Nicht-Benachrichtigen.
+>
+> **Mail-Inhalt ist PID-frei (hart):** nur Marker (MSH-3/4/10 = Quellsystem-
+> Metadaten, kein Patientenbezug), Zähler, Status, Zeit, Klassifikation, Grund —
+> **nie** Name/PID/rohe Bewegungsdaten. Mail ist ein unkontrollierter Kanal.
+>
+> **⚠️ G6-analog für die Mapper-DB:** Die Hold-Queue speichert **rohe v2-Events
+> inkl. PID/PHI** (zurückgehaltene Nachrichten sind roh!) — und gerade die
+> problematischen, liegenbleibenden. Verschlüsselung at-rest ist Betreiber-Sache
+> (verschlüsseltes Volume); der Mapper gibt das ebenso laut aus wie SILDs G6.
+
+**Löschung der Mapper-DB (SILD-SF-1-analog, GEBAUT — kein PID-Fenster):** die
+erprobte SILD-`erase_patient`-Logik ist wiederverwendet (nicht neu erfunden):
+Patienten-Schlüssel = PID-3, MR-typisiert, `Authority|ID`; multi-MR → Schlüssel-
+Menge; fail-closed mit der korrekten Unterscheidung (patientenlose Hold-Zeile →
+**nicht** Restrisiko; PID-3 vorhanden aber unlesbar → `unresolved`, zählt →
+`incomplete_uncertain`); Lösch-Audit **ohne Inhalt** (Schlüssel/Zähler/Status/
+Zeit, nie Payload); dry-run per Default. Die Hold-Queue ist die einzige
+PID-Quelle der Mapper-DB; `finding`/`disposition`/`seen_marker` sind PID-frei und
+bleiben als inhaltsfreies Audit.
+
+```bash
+# dry-run (löscht nichts):
+python sild_mapper_m1.py erase --mapper-db /data/sild_mapper.sqlite \
+                               --patient-key "HOSP|P-2026-12345"
+# echte Löschung + inhaltsfreie Audit-Zeile:
+python sild_mapper_m1.py erase --mapper-db /data/sild_mapper.sqlite \
+                               --patient-key "HOSP|P-2026-12345" \
+                               --commit --erase-log /data/sild_mapper_erase.jsonl
+```
+
+> **Backup-Story:** Eine Löschung trifft nur die *lebende* Mapper-DB. Backups/
+> Snapshots des gemounteten Volumes liegen außerhalb von M-1 — eine vollständige
+> Erasure (SILD **und** Mapper-DB) muss die Backup-Rotation des Betreibers
+> einschließen (gleiche Linie wie SILD-SF-1 für SILDs Store).
+
 ### `load-generator`
 Sendet kontinuierlich Test-Nachrichten an den Filter — durchschnittlich 1.5 pro Sekunde, mit zufälligen Bursts (1–5 Nachrichten am Stück, dann längere Pause). Sorgt dafür, dass das Dashboard sofort lebendige Daten zeigt.
 

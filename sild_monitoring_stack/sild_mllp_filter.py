@@ -42,6 +42,10 @@ from sild_detector import (
     fhir_audit_events_from_report,   # M-5
 )
 
+# persist-before-ack durable v2 intake (Variante A) — additive, opt-in via
+# --durable-store. Stdlib-only (sqlite3). See sild_durable_store.py for G1–G6.
+from sild_durable_store import DurableStore, DurableIntake
+
 
 # Prometheus integration is optional — load lazily
 _prom_enabled = False
@@ -176,6 +180,47 @@ def read_mllp_message(sock: socket.socket, timeout: float = 5.0) -> Optional[str
                 return buffer.decode("utf-8", errors="replace")
 
 
+def read_mllp_frame(sock: socket.socket, timeout: float = 10.0,
+                    strict: bool = True) -> Optional[bytes]:
+    """
+    Read ONE complete MLLP frame and return the raw payload BYTES between VT and FS.
+
+    Frame-completeness precondition for the durable path: a message is
+    persist-eligible only once a complete frame (VT … FS CR) has been read. On
+    timeout, connection close, or (strict) a missing CR trailer this returns None
+    — i.e. NO partial frame is ever returned, so no partial frame can be durably
+    acked. Unlike read_mllp_message() (which is lenient about the trailing CR for
+    backward compatibility), the durable path uses strict=True.
+    """
+    sock.settimeout(timeout)
+    buffer = bytearray()
+    state  = "wait_start"
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            return None
+        if not chunk:
+            return None
+        for byte in chunk:
+            b = bytes([byte])
+            if state == "wait_start":
+                if b == VT:
+                    state = "in_message"
+                    buffer.clear()
+            elif state == "in_message":
+                if b == FS:
+                    state = "wait_cr"
+                else:
+                    buffer.append(byte)
+            elif state == "wait_cr":
+                if b == CR:
+                    return bytes(buffer)
+                if strict:
+                    return None          # malformed trailer -> not a complete frame
+                return bytes(buffer)
+
+
 def _extract_tenant_id(msg_text: str) -> str:
     """
     FM-4 §2.4: Tenant-ID aus MSH-3 (Sending Application) und MSH-4 (Sending Facility).
@@ -237,6 +282,7 @@ class SILDFilterServer:
         logger:          JSONLogger,
         mode:            str,
         severity_config: Optional[SeverityOverrideConfig] = None,
+        durable_store_path: Optional[str] = None,
     ):
         self.listen_port     = listen_port
         self.forwarder       = forwarder
@@ -246,6 +292,21 @@ class SILDFilterServer:
         self._stop           = threading.Event()
         self._stats          = {"received": 0, "forwarded": 0, "blocked": 0, "errors": 0}
         self._stats_lock     = threading.Lock()
+
+        # persist-before-ack (Variante A), opt-in. When a store path is given the
+        # ingress runs frame -> persist(fsync) -> analyse -> ack -> forward; when
+        # omitted the filter behaves exactly as before (fully backward compatible).
+        self.store:  Optional[DurableStore]  = None
+        self.intake: Optional[DurableIntake] = None
+        if durable_store_path:
+            self.store  = DurableStore(durable_store_path)
+            self.intake = DurableIntake(
+                self.store,
+                agent_info=_AGENT_INFO,
+                severity_config=self.severity_config,
+                forward_fn=(self.forwarder.send if self.forwarder else None),
+                audit_writer=self.logger.log,
+            )
 
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -270,6 +331,35 @@ class SILDFilterServer:
         print(f"[SILD-Filter] Mode: {self.mode} | Backend: {backend} | {fwd_info}")
         print(f"[SILD-Filter] Severity: {override_info}")
         print(f"[SILD-Filter] Log: {self.logger.path}")
+
+        # G6: LOUD, non-sabotaging delegate of at-rest encryption + G4 recovery.
+        if self.store is not None:
+            sys.stderr.write(
+                "\n"
+                "[SILD-Filter] *********************************************************\n"
+                "[SILD-Filter] *** persist-before-ack ENABLED (Variante A).          ***\n"
+                "[SILD-Filter] *** The durable store holds UNENCRYPTED raw HL7 v2     ***\n"
+                "[SILD-Filter] *** incl. PHI/PID. At-rest encryption + access control ***\n"
+                "[SILD-Filter] *** are the OPERATOR's responsibility (RFC §11.1) —    ***\n"
+                "[SILD-Filter] *** SILD does NOT encrypt it. Place the store on an    ***\n"
+                f"[SILD-Filter] *** encrypted volume. Store: {self.store.path}\n"
+                "[SILD-Filter] *** Erasure/backup of the store: see SILD-SF-1.        ***\n"
+                "[SILD-Filter] *********************************************************\n\n"
+            )
+            recovered = self.intake.recover()
+            print(f"[SILD-Filter] Durable store: {self.store.path} "
+                  f"(WAL+FULL) | recovery sweep re-inspected {recovered} pending message(s)")
+        else:
+            # No silent mode: durability is the default, so reaching here means it
+            # was explicitly disabled (--no-durable). Say so, loudly.
+            sys.stderr.write(
+                "\n"
+                "[SILD-Filter] *********************************************************\n"
+                "[SILD-Filter] *** NON-DURABLE MODE (--no-durable). persist-before-ack ***\n"
+                "[SILD-Filter] *** is OFF: an accepted message CAN BE LOST on a crash. ***\n"
+                "[SILD-Filter] *** Use only for demo/test — never for production v2.    ***\n"
+                "[SILD-Filter] *********************************************************\n\n"
+            )
         print(f"[SILD-Filter] Press Ctrl-C to stop\n")
 
         try:
@@ -293,10 +383,17 @@ class SILDFilterServer:
             M_CONNECTIONS.labels(protocol=PROTOCOL).inc()
         try:
             while not self._stop.is_set():
-                msg_text = read_mllp_message(client, timeout=10.0)
-                if msg_text is None:
-                    break
-                self._process_message(client, msg_text, addr)
+                if self.intake is not None:
+                    # Durable path: strict, byte-exact, complete-frame reads only.
+                    raw = read_mllp_frame(client, timeout=10.0, strict=True)
+                    if raw is None:
+                        break
+                    self._process_durable(client, raw, addr)
+                else:
+                    msg_text = read_mllp_message(client, timeout=10.0)
+                    if msg_text is None:
+                        break
+                    self._process_message(client, msg_text, addr)
         except Exception as e:
             with self._stats_lock:
                 self._stats["errors"] += 1
@@ -308,6 +405,60 @@ class SILDFilterServer:
                 client.close()
             except Exception:
                 pass
+
+    def _process_durable(self, client: socket.socket, raw: bytes, addr):
+        """
+        persist-before-ack (Variante A): the DurableIntake commits the raw bytes
+        (fsync) BEFORE the ack, analyses, then sends the ack and forwards
+        best-effort. The ack is delivered via the send_ack callback so the ordering
+        (persist -> analyse -> ack -> forward) lives entirely in DurableIntake.
+        """
+        t_start = time.time()
+
+        def send_ack(code: str, text: str):
+            # make_ack tolerates missing MSH fields (unparseable -> AA, G5).
+            self._send_ack(client, raw.decode("utf-8", errors="replace"), code=code, text=text)
+
+        try:
+            outcome = self.intake.handle(raw, send_ack)
+        except Exception as e:
+            # A failure here means persist() did not return -> no ack was sent
+            # (G1: ACK => durable). The sender sees no ack and retries.
+            with self._stats_lock:
+                self._stats["errors"] += 1
+            print(f"[SILD-Filter] {addr} durable-intake error (no ack sent): "
+                  f"{type(e).__name__}: {e}")
+            return
+
+        elapsed = time.time() - t_start
+        with self._stats_lock:
+            self._stats["received"] += 1
+            recv_no = self._stats["received"]
+            if outcome.forwarded:
+                self._stats["forwarded"] += 1
+
+        report = outcome.report
+        if _prom_enabled and report is not None:
+            mt = report.message_type or "UNKNOWN"
+            M_MESSAGES.labels(protocol=PROTOCOL, message_type=mt, ack_code=outcome.ack_code).inc()
+            M_LATENCY.labels(protocol=PROTOCOL, message_type=mt).observe(elapsed)
+            for loss in report.losses:
+                pname = loss.pattern.value if hasattr(loss.pattern, "value") else str(loss.pattern)
+                M_LOSSES.labels(
+                    protocol=PROTOCOL, pattern=pname,
+                    severity=loss.effective_severity, message_type=mt,
+                ).inc()
+            M_LOSS_BUDGET.labels(protocol=PROTOCOL, message_type=mt).observe(
+                report.loss_budget_bits_estimate
+            )
+
+        mt   = report.message_type if report else "UNPARSEABLE"
+        cid  = report.control_id if report else "-"
+        flag = "AE/CRIT" if outcome.ack_code == "AE" else ("UNINSP" if outcome.uninspectable else "OK")
+        fwd  = ("fwd" if outcome.forwarded else
+                "fwd-fail" if outcome.forwarded is False else "no-fwd")
+        print(f"[SILD-Filter] #{recv_no} receipt={outcome.receipt_id} {flag} {mt} {cid} "
+              f"| ack={outcome.ack_code} | {elapsed*1000:.1f}ms | {fwd}")
 
     def _process_message(self, client: socket.socket, msg_text: str, addr):
         t_start = time.time()
@@ -473,6 +624,18 @@ def main():
     parser.add_argument("--severity-config", type=str, default=None,
                         help="Pfad zur JSON-Datei mit Severity-Overrides (FM-4 §2.4). "
                              "Format: {\"default_overrides\": [...], \"tenant_overrides\": {...}}")
+    # persist-before-ack durable v2 intake (Variante A) — DEFAULT ON (fail-secure,
+    # like AUTH_ENABLED: durable unless explicitly disabled). The ingress persists
+    # each message durably (SQLite WAL+FULL) BEFORE acking — no accepted message is
+    # lost across a crash. The store holds raw v2 incl. PHI: see the startup
+    # warning and SILD-SF-1.
+    parser.add_argument("--durable-store", type=str, default=None,
+                        help="Path to the SQLite persist-before-ack store. "
+                             "Default: <dir of --log>/sild_intake.sqlite. "
+                             "Place it on an encrypted volume — SILD does NOT encrypt at rest.")
+    parser.add_argument("--no-durable", action="store_true",
+                        help="DISABLE persist-before-ack (demo/test only). Messages can be "
+                             "LOST on a crash. A loud non-durable-mode warning is printed.")
     args = parser.parse_args()
 
     # Prometheus starten
@@ -501,8 +664,17 @@ def main():
         forwarder = MLLPForwarder(host, int(port_str))
 
     logger = JSONLogger(Path(args.log))
+
+    # Fail-secure: durable unless explicitly switched off. The store path defaults
+    # to a sibling of the --log file on the same (mounted) volume.
+    if args.no_durable:
+        durable_store_path = None
+    else:
+        durable_store_path = args.durable_store or str(Path(args.log).parent / "sild_intake.sqlite")
+
     server = SILDFilterServer(
-        args.listen, forwarder, logger, args.mode, severity_config
+        args.listen, forwarder, logger, args.mode, severity_config,
+        durable_store_path=durable_store_path,
     )
     server.start()
 
