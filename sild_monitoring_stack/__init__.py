@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Friedhelm Matten / ISCaD GmbH
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
 """SILD Python-Paket — öffentliche API.
 
 Importierbar als ``sild`` nach ``pip install git+https://github.com/fmatten/SILD.git``
