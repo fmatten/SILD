@@ -504,24 +504,42 @@ def test_m2g1_persist_before_cursor_end_to_end(tmp_path):
 # --- Verlegungspfad zweifach (Review-Fokus f) ------------------------------------
 
 def test_m2_verlegungspfad_zweifach_end_to_end(tmp_path):
-    """(1) Der Korpus-A02 (Zeit nur in EVN-2) wird von M-1 GEHOLDET und erreicht
-    M-2 nie (Anti-Falsch-Datierung wirkt). (2) Der SEPARATE sauber-datierte A02
-    (ZBE-2, samples/adt_m2_interface/) fliesst M-1 -> usable -> M-2 und baut die
-    Segmentgrenze KAR->IMC mit Provenienz 'measured'."""
+    """(1) Der Korpus-A02 (Zeit nur in EVN-2) wird von M-1 GEHOLDET und wird
+    NIE als gemessener Fakt verrechnet — seit Stufe 3 erreicht er M-2 nur als
+    SCHAETZ-Kandidat (beidseitig begrenztes Intervall, isolierbar), niemals
+    mit seiner EVN-2-Zeit als Bewegungszeit (Anti-Falsch-Datierung wirkt).
+    (2) Der SEPARATE sauber-datierte A02 (ZBE-2, samples/adt_m2_interface/)
+    fliesst M-1 -> usable -> M-2 und baut die Grenze mit Provenienz 'measured'."""
     store, _, _, _ = _pipeline(
         tmp_path, [corpus_msg(26), corpus_msg(31), interface_a02()])
 
     kinds = _m1_kind_counts(tmp_path)
     assert kinds.get(m1.USABLE) == 2 and kinds.get(m1.HOLD_TIMEQUALITY) == 1, \
         "M-1: A01 + sauberer A02 usable, Korpus-A02 geholdet"
-    assert store.processed_outcome(2) is None, "der geholdete Korpus-A02 erreicht M-2 NICHT"
+    assert store.processed_outcome(2) == m2mod.OUT_ESTIMATION_CANDIDATE, \
+        "der geholdete Korpus-A02 erreicht M-2 NUR als Schaetz-Kandidat"
 
     stay, segs = _single_stay(store, "UKH|P100005")
-    assert [s.ward for s in segs] == ["KAR", "IMC"]
-    assert segs[0].end_ts == iso("20260610173000"), "Segmentgrenze aus dem sauberen A02"
-    assert segs[0].end_provenance == m1.PROV_MEASURED, "ZBE-2 = gemessene Bewegungszeit"
-    assert segs[1].start_provenance == m1.PROV_MEASURED
-    assert segs[1].end_ts is None
+    # Der MESSBARE Pfad ist unveraendert: die 17:30-Grenze stammt aus dem
+    # sauberen A02 (ZBE-2). Der geholdete Korpus-A02 (beschreibt dieselbe
+    # Bewegung unter ANDERER Event-Identitaet) wird zusaetzlich als Intervall
+    # [15:20, 17:30] eingeklemmt — als SCHRANKEN, nie als EVN-2-Punktzeit.
+    assert [s.ward for s in segs] == ["KAR", "IMC", "IMC"]
+    est = store.get_estimate(2)
+    assert est["status"] == m2mod.EST_ACTIVE
+    assert (est["lower_ts"], est["upper_ts"]) == (iso("20260610152000"),
+                                                  iso("20260610173000"))
+    assert segs[1].end_ts == iso("20260610173000"), "gemessene 17:30-Grenze erhalten"
+    assert segs[1].end_provenance == m1.PROV_MEASURED, "ZBE-2 = gemessene Bewegungszeit"
+    assert segs[2].start_ts == iso("20260610173000")
+    assert segs[2].start_provenance == m1.PROV_MEASURED
+    assert segs[2].end_ts is None
+    # Isolierbarkeit (M3-G5): der Estimated-Filter laesst nur Segmente ohne
+    # geschaetzte Grenzseite durch.
+    clean = store.segments_in_range(iso("20260610000000"), iso("20260612000000"),
+                                    include_estimated=False)
+    assert [s.ward for s in clean] == ["IMC"], \
+        "nur das beidseitig messbare Segment besteht den Estimated-Filter"
 
 
 # --- M2-G7: Provenienz an jeder Segmentgrenze ------------------------------------
@@ -608,9 +626,15 @@ def test_m2_full_corpus_end_to_end(tmp_path):
     assert kinds.get(m1.IGNORED) == EXPECTED_M1_CORPUS_COUNTS["ignored"]
 
     counts = store.counts()
-    assert counts["events"] == 14, "genau die 14 usable erreichen M-2"
-    assert counts["stays"] == 7 and counts["segments"] == 12, \
-        "7 Patienten; 5x Muster B je 2 Segmente + P100004 (C) 1 + P100005 (A, A02 geholdet) 1"
+    # Seit Stufe 3: die 5 A02-Holds erreichen M-2 zusaetzlich als SCHAETZ-
+    # Kandidaten (nie als gemessene Fakten) — 14 usable + 5 Kandidaten.
+    assert counts["events"] == 19, "14 usable + 5 Hold-Kandidaten (Stufe 3)"
+    assert counts["stays"] == 7 and counts["segments"] == 13, \
+        "5x Muster B je 2 + P100004 (C) 1 + P100005 (A) 2 (eine Schaetzung aktiv)"
+    est_status = {e["receipt_id"]: e["status"] for e in store.all_estimates()}
+    assert est_status == {15: "waiting", 31: "active", 51: "waiting",
+                          52: "waiting", 54: "waiting"}, \
+        "NUR das eindeutig einklemmbare msg31 wird geschaetzt; der Rest bleibt Hold"
 
     for pkey, exp in EXPECTED_CORPUS_STAYS.items():
         stay, segs = _single_stay(store, pkey)

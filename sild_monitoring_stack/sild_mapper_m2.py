@@ -14,9 +14,15 @@ Wartefenstern. Stufe 2 (M2c, in diesem Modul) = der REVIDIERBARE Intervall-Kern:
 schon festgeschriebene Aufenthalte werden rueckwirkend revidierbar — EIN
 Mechanismus, drei Ausloeser (Storno A11/A12/A13, Update A08, verspaetetes
 Normal-Event), Modell A: Mutation in place, Historie im Audit-Log.
+Stufe 3 (M3, in diesem Modul) = Plausibilitaet + begrenzte Zeit-Schaetzung.
+Leitprinzip: der Mapper MARKIERT den Status eines Fakts ehrlich; AION bewertet.
+Er haelt nur zurueck, wenn er keinen TREUEN Fakt bauen kann — nicht, wenn der
+treue Fakt nur unplausibel aussieht. Er REPARIERT NIE.
 AUSDRUECKLICH NICHT hier (benannte Grenzen, nicht still):
-  - Stufe 3: semantische Plausibilitaet (Entlassung-vor-Aufnahme, Ortswechsel
-    im A03) und das Schaetzen fehlender Zeiten.
+  - Reparatur unplausibler Daten (kein Zeitstempel-Tausch, kein Klemmen,
+    keine erfundene Ordnung — Markieren ist ehrlich, Heilen ist Fabrikation).
+  - Unbegrenzte Zeit-Schaetzung (stationstypische Dauer / Ankunfts-Wanduhr
+    als Ersatzzeit: beide bewusst VERWORFEN — unbegrenzte Erfindung).
   - Rueckruf herausgegebener Resultate: bereits herausgegebene DP-Antworten/
     Reports sind nicht zurueckrufbar. Der Mapper meldet NUR das Faktum
     (alt->neu); ob ein herausgegebenes Resultat betroffen ist, entscheidet
@@ -140,6 +146,57 @@ Stufe-2-Garantien (M2c, jede mit benanntem Test in tests/test_mapper_m2c.py):
           derselbe mutate-Kern fuegt das Segment in die Vergangenheit ein
           (Split an der Grenze) + Benachrichtigung.
 
+Stufe-3-Garantien (M3, jede mit benanntem Test in tests/test_mapper_m3.py):
+
+  M3-G1  markiert, NIE Hold: semantisch unstimmige, aber treu baubare
+         Artefakte (Entlassung vor Aufnahme, Null-Dauer, ueberlappende offene
+         stays, Verlegung ohne Aufnahme, unbekannte Station, Ueberdauer)
+         werden DURCHGELASSEN und durabel markiert (plausibility_marker am
+         Segment/Stay) — fachliche Unstimmigkeit ist Domaenen-Bewertung
+         (AION). Marker koennen ZUSAETZLICH einen PID-freien Hinweis-Befund
+         ausloesen (Hinweis, nicht Hold).
+
+  M3-G2  nie reparieren (HARTE INVARIANTE): kein Zeitstempel-Tausch, kein
+         Klemmen, keine erfundene Ordnung — das durchgelassene Artefakt
+         traegt die ORIGINALZEITEN. Marker sind ABGELEITETE Werte: bei jedem
+         (Neu-)Bau des Aufenthalts neu berechnet, nie eingefroren.
+
+  M3-G3  Schaetzung NUR beidseitig begrenzt: ein zeitloses A02 (M-1
+         hold_timequality), das in der Sequenz-Ordnung zwischen zwei zeitlich
+         bekannten Events desselben Aufenthalts liegt, wird EINGEKLEMMT —
+         die Schranken [t1,t2] kommen aus den live Nachbar-Grenzen. Fehlt
+         eine Seite -> WEITER Hold (M-1s Hold bleibt autoritativ; M-2 legt
+         nur eine rueckziehbare Schaetz-Schicht darueber). NUR A02:
+         Verlegungen erzeugen die einzige INNERE Grenze; A01/A03 sind
+         Aufenthaltsraender, denen im eigenen stay eine Seite fehlt.
+
+  M3-G4  Intervall, nicht Punkt: geliefert werden BEIDE Schranken
+         (boundary_estimate: lower/upper + Quell-Events). Die Segment-Felder
+         tragen die Schranken selbst in Maximal-Ausdehnungs-Kodierung
+         (Vorgaenger-Ende = upper, Nachfolger-Start = lower, beide
+         PROV_ESTIMATED) — der Mapper waehlt NIE einen Punkt in (t1,t2);
+         Mittelpunkt/Intervall/Ausschluss entscheidet AION.
+
+  M3-G5  PROV_ESTIMATED isolierbar (epsilon-DP-Schutz): geschaetzte
+         Grenzseiten tragen ein eigenes, herausfilterbares Provenienz-Feld;
+         segments_in_range(include_estimated=False) liefert nur Segmente
+         ohne geschaetzte Grenze; export_for_aion fuehrt Schaetzungen als
+         eigenen Kanal. Ausschliessen ist AION-seitig — Isolierbarkeit ist
+         Mapper-Pflicht.
+
+  M3-G6  Marker durabel + PID-frei: plausibility_marker-Zeilen sind durabel
+         (und erasure-pflichtig: stay-gebunden = Quasi-Identifikator);
+         Hinweis-Befunde tragen nur Marker-Art/stay/seq — KEINE Standort+
+         Zeit-Paare, kein Patient (SF-2-Disziplin).
+
+  M3-G7  Schaetzung x Rueckwirkung: PROV_ESTIMATED ist ein ABGELEITETER
+         Wert, kein eingefrorener — bei jedem (Neu-)Bau aus den dann-
+         aktuellen Schranken neu berechnet. Aendert eine Stufe-2-Mutation
+         eine Schranke (A08) -> Intervall passt sich an; entfernt sie eine
+         Schranke (Storno) -> Rueckfall auf Hold (geschaetzte Grenze wird
+         zurueckgebaut, Schaetz-Zeile 'reverted_hold' + Befund; M-1s Hold
+         war nie weg).
+
 AION/M-4-ANFORDERUNGEN — hier NUR dokumentiert, NICHT implementiert:
   (a) Verschmelzung zeitlich angrenzender GLEICHER Kontakt-Einheiten ist eine
       Delta_con-Regel der Compute-Seite. M-2 liefert ehrlich ZWEI Segmente
@@ -150,6 +207,15 @@ AION/M-4-ANFORDERUNGEN — hier NUR dokumentiert, NICHT implementiert:
       als unbeschraenkt und dokumentiert das.
   (c) Uebergabe: `export_for_aion()` ist die Lese-Schnittstelle auf den
       festgeschriebenen Stand; der aktive Push ist M-4.
+  (d) Defensive Behandlung plausibilitaets-markierter Artefakte: AION muss
+      markierte (v.a. strukturell entartete: negative/Null-Dauer,
+      ueberlappende offene stays) isolieren/filtern/bewusst einbeziehen
+      koennen, damit sie eine Delta_con-Rechnung nicht still korrumpieren.
+  (e) epsilon-DP-Schutz: geschaetzte Zeiten (PROV_ESTIMATED) muessen aus
+      DP-Abfragen ausschliessbar sein — eine geschaetzte Kontaktzeit in
+      einer epsilon-DP-Abfrage waere fabriziertes Signal unter harter
+      Garantie. Der Mapper liefert die Isolierbarkeit (M3-G5); das
+      Ausschliessen entscheidet AION.
 
 AN ECHTEN DATEN ZU VERIFIZIEREN (dokumentiert, nicht geloest — vgl. Briefing §6):
   - Visit-Lage: im Korpus sitzt die Visit-Nummer NICHT in PV1-19, sondern auf
@@ -253,6 +319,43 @@ STAY_CANCELLED = "cancelled"                # stay-Status nach A11
 # Location-tragende Eintritts-/Bewegungs-Trigger der Stufe 1.
 MOVEMENT_TRIGGERS = frozenset({"A01", "A02", "A03", "A04"})
 
+# --- M3 (Stufe 3): Plausibilitaets-Marker + begrenzte Schaetzung ----------------
+
+# M3-G4/G5: vierte Provenienz-Klasse — beidseitig begrenzte Schaetzung.
+# Ergaenzt m1.PROV_MEASURED/EVENT/RECORDED; eigenes herausfilterbares Feld
+# (epsilon-DP-Schutz: Isolierbarkeit ist Mapper-Pflicht, Ausschluss AION).
+PROV_ESTIMATED = "estimated"
+
+# Marker-Arten (Teil A) — durabel, abgeleitet, erweiterbar.
+MARK_NEGATIVE_DURATION  = "negative_duration"      # Segment-Ende vor -Start
+MARK_ZERO_DURATION      = "zero_duration"          # Ende == Start
+MARK_IMPLAUSIBLE_ORDER  = "implausible_order"      # Entlassung vor Aufnahme (stay)
+MARK_OVERLAPPING_OPEN   = "overlapping_open_stays" # >1 offener stay desselben Patienten
+MARK_ORPHAN_TRANSFER    = "orphan_transfer"        # Verlegung ohne zugehoerige Aufnahme
+MARK_UNKNOWN_WARD       = "unknown_ward"           # Stationscode nicht in bekannter Liste
+MARK_EXCESSIVE_DURATION = "excessive_duration"     # ueber klassen-diff. Schwelle (NUR Marker)
+
+FINDING_PLAUSIBILITY    = "m3_plausibility"        # Hinweis-Befund (nicht Hold)
+FINDING_ESTIMATE_REVERT = "m3_estimate_reverted"   # Schaetzung -> Rueckfall auf Hold
+
+# Schaetz-Status (Teil B). M-1s hold_timequality bleibt autoritativ — die
+# Schaetzung ist eine RUECKZIEHBARE Schicht darueber.
+EST_WAITING  = "waiting"        # (noch) nicht beidseitig begrenzt -> weiter Hold
+EST_ACTIVE   = "active"         # eingeklemmt, Grenze geliefert
+EST_REVERTED = "reverted_hold"  # Schranke entfiel -> zurueckgebaut, wieder Hold
+
+# Abgeleitete Plan-Ops (Teil B) — laufen durch DENSELBEN Plan-Anwender
+# (apply_plan_to_snapshot, SF-1: ein Code-Pfad), aber OHNE retro_audit:
+# Schaetzungen sind ABGELEITETE Werte, keine Revision eines Fakts.
+RETRO_INSERT_ESTIMATED = "insert_estimated_boundary"
+RETRO_UPDATE_ESTIMATED = "update_estimated_boundary"
+
+# Ingest-Outcomes fuer M-1-Hold-Kandidaten (Teil B).
+OUT_ESTIMATION_CANDIDATE = "estimation_candidate"  # zeitloses A02 — einklemmbar?
+OUT_HOLD_UNSUPPORTED     = "hold_unsupported"      # Hold, den Stufe 3 nicht schaetzt
+
+EV_ESTIMATE = "estimate"        # m2_event-Status der Hold-Kandidaten (nie 'pending')
+
 # Muster (M2-G2).
 PATTERN_PENDING = "pending"   # A04-Episode, Join-Fenster laeuft (B vs. C offen)
 PATTERN_A = "A"               # direkt stationaer (A01 ohne A04-Vorlauf)
@@ -337,6 +440,19 @@ class WindowConfig:
     # M2c-G6: wie lange eine wartende Negation auf ihr Zielereignis wartet,
     # bevor der Befund kommt (sie bleibt danach LIEGEN). Aus delay_log lernbar.
     tombstone_wait_ttl_s: int = 7 * 24 * 3600
+
+
+@dataclass
+class PlausibilityConfig:
+    """
+    M3 Teil A: Konfiguration der Plausibilitaets-Pruefungen. `known_wards` ist
+    STANDORTSPEZIFISCH (an echten Daten zu verifizieren): None = Pruefung AUS
+    (Default — eine falsche Liste wuerde jeden legitimen Code markieren).
+    Die Ueberdauer-Pruefung (excessive_duration) nutzt dieselben klassen-
+    differenzierten Schwellen wie die Offen-Schwelle (OpenOverdueThresholds) —
+    langer ITS-Aufenthalt ist legitim: NUR Marker, NIE Hold.
+    """
+    known_wards: Optional[Tuple[str, ...]] = None
 
 
 @dataclass
@@ -558,9 +674,101 @@ def apply_plan_to_snapshot(before: dict, plan: dict) -> dict:
             plan["t"], plan["provenance"], plan["event_receipt"]
         segs.append(new_seg)
         segs.sort(key=lambda s: s["seq"])
+    elif op == RETRO_INSERT_ESTIMATED:
+        # M3-G3/G4: eingeklemmte Grenze in Maximal-Ausdehnungs-Kodierung —
+        # Vorgaenger-Ende = upper, Nachfolger-Start = lower, beide
+        # PROV_ESTIMATED. Der Mapper waehlt NIE einen Punkt in (t1,t2).
+        split = next(s for s in segs if s["segment_id"] == plan["split_segment_id"])
+        new_seg = {
+            "segment_id": None, "stay_id": split["stay_id"], "seq": split["seq"] + 1,
+            "pv1_3_raw": plan["pv1_3_raw"], "ward": plan["ward"],
+            "room": plan["room"], "bed": plan["bed"],
+            "start_ts": plan["lower"], "start_provenance": PROV_ESTIMATED,
+            "start_receipt": plan["event_receipt"],
+            "end_ts": split["end_ts"], "end_provenance": split["end_provenance"],
+            "end_receipt": split["end_receipt"],
+        }
+        for s in segs:
+            if s["seq"] > split["seq"]:
+                s["seq"] += 1
+        split["end_ts"], split["end_provenance"], split["end_receipt"] = \
+            plan["upper"], PROV_ESTIMATED, plan["event_receipt"]
+        segs.append(new_seg)
+        segs.sort(key=lambda s: s["seq"])
+    elif op == RETRO_UPDATE_ESTIMATED:
+        # M3-G7: Schranken neu abgeleitet — nur die geschaetzten Grenzseiten
+        # bewegen sich; Provenienz bleibt PROV_ESTIMATED.
+        pred = next(s for s in segs if s["segment_id"] == plan["pred_segment_id"])
+        succ = next(s for s in segs if s["segment_id"] == plan["succ_segment_id"])
+        pred["end_ts"] = plan["upper"]
+        succ["start_ts"] = plan["lower"]
     else:
         raise ValueError(f"unbekannte Mutations-Art {op!r}")
     return after
+
+
+# ===========================================================================
+# M3 Teil A: Plausibilitaets-Pruefungen — PUR (kein Store, kein Lock).
+# Markieren, durchlassen, NIE reparieren: die Funktion liest den Snapshot und
+# liefert Marker; sie veraendert KEINE Zeit und KEINE Ordnung (M3-G2).
+# ===========================================================================
+
+def _seg_estimated(s: dict) -> bool:
+    return PROV_ESTIMATED in (s.get("start_provenance"), s.get("end_provenance"))
+
+
+def compute_plausibility_markers(
+    snapshot: dict,
+    triggers_by_receipt: dict,
+    open_stay_count: int,
+    cfg: PlausibilityConfig,
+    thresholds: OpenOverdueThresholds,
+) -> List[dict]:
+    """Alle Marker fuer den AKTUELLEN Stand eines Aufenthalts (abgeleitet —
+    der Aufrufer ersetzt den alten Markersatz). Dauer-Pruefungen nur auf
+    nicht-geschaetzten Grenzen (geschaetzte Seiten sind Schranken in
+    Maximal-Ausdehnung, keine Dauern). detail ist PID-frei formuliert,
+    bleibt aber DB-intern (Befunde tragen nur Marker-Art/stay/seq)."""
+    stay = snapshot["stay"]
+    sid = stay["stay_id"]
+    out: List[dict] = []
+
+    def mark(scope: str, ref_id: int, kind: str, detail: str) -> None:
+        out.append({"scope": scope, "ref_id": ref_id, "kind": kind, "detail": detail})
+
+    for s in snapshot["segments"]:
+        if cfg.known_wards is not None and s["ward"] and s["ward"] not in cfg.known_wards:
+            mark("segment", s["segment_id"], MARK_UNKNOWN_WARD,
+                 f"Station {s['ward']} nicht in bekannter Liste")
+        if s["end_ts"] is None or _seg_estimated(s):
+            continue
+        if s["end_ts"] < s["start_ts"]:
+            mark("segment", s["segment_id"], MARK_NEGATIVE_DURATION,
+                 f"Segment seq {s['seq']}: Ende vor Start (Originalzeiten erhalten)")
+        elif s["end_ts"] == s["start_ts"]:
+            mark("segment", s["segment_id"], MARK_ZERO_DURATION,
+                 f"Segment seq {s['seq']}: Ende == Start")
+        else:
+            dur = (datetime.fromisoformat(s["end_ts"])
+                   - datetime.fromisoformat(s["start_ts"])).total_seconds()
+            label, limit = thresholds.classify(stay["pattern"], s["ward"])
+            if dur > limit:
+                mark("segment", s["segment_id"], MARK_EXCESSIVE_DURATION,
+                     f"Segment seq {s['seq']}: Dauer ueber Klassen-Schwelle ({label})")
+
+    if (stay["status"] == "closed" and stay["closed_event_ts"] is not None
+            and stay["closed_event_ts"] < stay["opened_event_ts"]):
+        mark("stay", sid, MARK_IMPLAUSIBLE_ORDER,
+             "Entlassung vor Aufnahme (Originalzeiten erhalten)")
+    if stay["status"] == "open" and open_stay_count > 1:
+        mark("stay", sid, MARK_OVERLAPPING_OPEN,
+             f"{open_stay_count} gleichzeitig offene Aufenthalte")
+    if stay["pattern"] in (PATTERN_PENDING, PATTERN_C):
+        if any(triggers_by_receipt.get(s["start_receipt"]) == "A02"
+               for s in snapshot["segments"]):
+            mark("stay", sid, MARK_ORPHAN_TRANSFER,
+                 "Verlegung in Episode ohne Aufnahme (kein A01)")
+    return out
 
 
 def _segment_lines(segments: List[dict]) -> List[str]:
@@ -763,6 +971,39 @@ CREATE TABLE IF NOT EXISTS pending_retro (
 );
 CREATE INDEX IF NOT EXISTS idx_pending_retro_target  ON pending_retro (target_msh10, status);
 CREATE INDEX IF NOT EXISTS idx_pending_retro_patient ON pending_retro (patient_key);
+-- M3 Teil A: Plausibilitaets-Marker — durabel, aber ABGELEITET (bei jedem
+-- Neubau des Aufenthalts neu berechnet, alte Zeilen ersetzt). stay-gebunden
+-- (+ detail mit Standort/Zeit) = Quasi-Identifikator -> erasure-PFLICHTIG.
+CREATE TABLE IF NOT EXISTS plausibility_marker (
+    marker_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    stay_id    INTEGER NOT NULL,
+    scope      TEXT NOT NULL,            -- 'stay' | 'segment'
+    ref_id     INTEGER NOT NULL,         -- stay_id bzw. segment_id
+    kind       TEXT NOT NULL,
+    detail     TEXT,
+    created_ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plaus_stay ON plausibility_marker (stay_id);
+-- M3 Teil B: beidseitig begrenzte Schaetzung — eine je zeitlosem Event
+-- (receipt). ABGELEITETER Wert (M3-G7): Schranken werden bei jedem Bau neu
+-- berechnet; 'reverted_hold' = zurueckgebaut, M-1s Hold bleibt autoritativ.
+-- stay-/Zeit-gebunden = Quasi-Identifikator -> erasure-PFLICHTIG.
+CREATE TABLE IF NOT EXISTS boundary_estimate (
+    receipt_id            INTEGER PRIMARY KEY,   -- das zeitlose Event
+    stay_id               INTEGER,
+    status                TEXT NOT NULL,         -- waiting | active | reverted_hold
+    lower_ts              TEXT,                  -- t1 (Schranke, KEIN Punkt)
+    upper_ts              TEXT,                  -- t2
+    lower_source_receipt  INTEGER,               -- welches Event t1 lieferte
+    upper_source_receipt  INTEGER,               -- welches Event t2 lieferte
+    updated_ts            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_estimate_status ON boundary_estimate (status);
+-- M3 Teil B: eigener Cursor ueber M-1s hold_queue (read-only gescannt).
+CREATE TABLE IF NOT EXISTS m2_hold_cursor (
+    id              INTEGER PRIMARY KEY CHECK (id = 0),
+    last_receipt_id INTEGER NOT NULL
+);
 -- M2-G6: Befunde — zuerst durabel ('pending'), dann aktiv gemeldet (M-1-Kanal).
 CREATE TABLE IF NOT EXISTS finding (
     finding_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1120,13 +1361,21 @@ class M2Store:
         rows = self._segment_rows("segment_id=?", (segment_id,))
         return rows[0] if rows else None
 
-    def segments_in_range(self, t_from_iso: str, t_to_iso: str) -> List[SegmentRow]:
+    def segments_in_range(self, t_from_iso: str, t_to_iso: str,
+                          *, include_estimated: bool = True) -> List[SegmentRow]:
         """Zeitraum-Suche (halb-offen): Segmente, die [from, to) schneiden;
-        offene Segmente (end NULL) gelten als andauernd."""
+        offene Segmente (end NULL) gelten als andauernd.
+        M3-G5 (epsilon-DP-Schutz): include_estimated=False liefert NUR
+        Segmente ohne geschaetzte Grenzseite — PROV_ESTIMATED ist sauber
+        isolierbar; das Ausschliessen selbst entscheidet AION."""
+        where = "start_ts < ? AND (end_ts IS NULL OR end_ts > ?)"
+        params: tuple = (t_to_iso, t_from_iso)
+        if not include_estimated:
+            where += (" AND start_provenance != ? "
+                      "AND (end_provenance IS NULL OR end_provenance != ?)")
+            params += (PROV_ESTIMATED, PROV_ESTIMATED)
         return self._segment_rows(
-            "start_ts < ? AND (end_ts IS NULL OR end_ts > ?) ORDER BY start_ts, segment_id",
-            (t_to_iso, t_from_iso),
-        )
+            where + " ORDER BY start_ts, segment_id", params)
 
     def find_contacts(self, segment_id: int, granularity: str = GRAN_WARD) -> List[SegmentRow]:
         """
@@ -1350,6 +1599,44 @@ class M2Store:
             self._conn.commit()
         return audit_id, notif_id
 
+    def _write_back_snapshot(self, cur, before: dict, after: dict, stay_id: int) -> None:
+        """Der GETEILTE Write-back des einen Plan-Anwenders (SF-1): schreibt
+        den pur berechneten after-Stand zurueck — Update per segment_id,
+        Delete fuer entfallene, Insert fuer neue Zeilen. Genutzt von
+        apply_retro_plan (Stufe 2) UND apply_derived_plan (Stufe 3)."""
+        st = after["stay"]
+        cur.execute(
+            "UPDATE stay SET pattern=?, status=?, opened_receipt=?, "
+            "opened_event_ts=?, closed_receipt=?, closed_event_ts=? WHERE stay_id=?",
+            (st["pattern"], st["status"], st["opened_receipt"],
+             st["opened_event_ts"], st["closed_receipt"], st["closed_event_ts"],
+             stay_id))
+        after_ids = {s["segment_id"] for s in after["segments"]
+                     if s["segment_id"] is not None}
+        for s in before["segments"]:
+            if s["segment_id"] not in after_ids:
+                cur.execute("DELETE FROM segment WHERE segment_id=?",
+                            (s["segment_id"],))
+        for s in after["segments"]:
+            if s["segment_id"] is not None:
+                cur.execute(
+                    "UPDATE segment SET seq=?, pv1_3_raw=?, ward=?, room=?, bed=?, "
+                    "start_ts=?, start_provenance=?, start_receipt=?, "
+                    "end_ts=?, end_provenance=?, end_receipt=? WHERE segment_id=?",
+                    (s["seq"], s["pv1_3_raw"], s["ward"], s["room"], s["bed"],
+                     s["start_ts"], s["start_provenance"], s["start_receipt"],
+                     s["end_ts"], s["end_provenance"], s["end_receipt"],
+                     s["segment_id"]))
+            else:
+                cur.execute(
+                    "INSERT INTO segment (stay_id, seq, pv1_3_raw, ward, room, bed, "
+                    "start_ts, start_provenance, start_receipt, end_ts, "
+                    "end_provenance, end_receipt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (stay_id, s["seq"], s["pv1_3_raw"], s["ward"],
+                     s["room"], s["bed"], s["start_ts"], s["start_provenance"],
+                     s["start_receipt"], s["end_ts"], s["end_provenance"],
+                     s["end_receipt"]))
+
     def apply_retro_plan(self, audit_id: int, receipt_id: int, plan: dict,
                          *, resolve_pending_id: Optional[int] = None) -> None:
         """M2c-G1 Schritt 3: die Mutation in place — Mutation + audit.applied=1
@@ -1375,40 +1662,7 @@ class M2Store:
             except (StopIteration, ValueError) as e:
                 self._conn.rollback()
                 raise ValueError(f"Plan passt nicht zum aktuellen Stand: {e}") from e
-            # stay zurueckschreiben
-            st = after["stay"]
-            cur.execute(
-                "UPDATE stay SET pattern=?, status=?, opened_receipt=?, "
-                "opened_event_ts=?, closed_receipt=?, closed_event_ts=? WHERE stay_id=?",
-                (st["pattern"], st["status"], st["opened_receipt"],
-                 st["opened_event_ts"], st["closed_receipt"], st["closed_event_ts"],
-                 plan["stay_id"]))
-            # Segmente zurueckschreiben: Update/Delete/Insert per segment_id
-            after_ids = {s["segment_id"] for s in after["segments"]
-                         if s["segment_id"] is not None}
-            for s in before["segments"]:
-                if s["segment_id"] not in after_ids:
-                    cur.execute("DELETE FROM segment WHERE segment_id=?",
-                                (s["segment_id"],))
-            for s in after["segments"]:
-                if s["segment_id"] is not None:
-                    cur.execute(
-                        "UPDATE segment SET seq=?, pv1_3_raw=?, ward=?, room=?, bed=?, "
-                        "start_ts=?, start_provenance=?, start_receipt=?, "
-                        "end_ts=?, end_provenance=?, end_receipt=? WHERE segment_id=?",
-                        (s["seq"], s["pv1_3_raw"], s["ward"], s["room"], s["bed"],
-                         s["start_ts"], s["start_provenance"], s["start_receipt"],
-                         s["end_ts"], s["end_provenance"], s["end_receipt"],
-                         s["segment_id"]))
-                else:
-                    cur.execute(
-                        "INSERT INTO segment (stay_id, seq, pv1_3_raw, ward, room, bed, "
-                        "start_ts, start_provenance, start_receipt, end_ts, "
-                        "end_provenance, end_receipt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (plan["stay_id"], s["seq"], s["pv1_3_raw"], s["ward"],
-                         s["room"], s["bed"], s["start_ts"], s["start_provenance"],
-                         s["start_receipt"], s["end_ts"], s["end_provenance"],
-                         s["end_receipt"]))
+            self._write_back_snapshot(cur, before, after, plan["stay_id"])
             cur.execute(
                 "UPDATE retro_audit SET applied=1, applied_ts=? WHERE audit_id=?",
                 (ts, audit_id))
@@ -1521,6 +1775,189 @@ class M2Store:
             ).fetchall()
         return [(r[0], r[1], r[2]) for r in rows]
 
+# --- M3 Teil A: Plausibilitaets-Marker (durabel, abgeleitet) ------------------
+
+    def assessment_inputs(self, stay_id: int) -> Optional[Tuple[dict, dict, int]]:
+        """(Snapshot, Trigger-pro-Receipt, Anzahl offener stays des Patienten)
+        in EINEM Lock — Input fuer compute_plausibility_markers (pur)."""
+        with self._lock:
+            snap = self._snapshot_with_cur(self._conn, stay_id)
+            if snap is None:
+                return None
+            patient = self._conn.execute(
+                "SELECT patient_key FROM stay WHERE stay_id=?", (stay_id,)).fetchone()[0]
+            open_count = self._conn.execute(
+                "SELECT COUNT(*) FROM stay WHERE patient_key=? AND status='open'",
+                (patient,)).fetchone()[0]
+            receipts = {snap["stay"]["opened_receipt"], snap["stay"]["closed_receipt"]}
+            for s in snap["segments"]:
+                receipts.add(s["start_receipt"])
+                receipts.add(s["end_receipt"])
+            receipts.discard(None)
+            triggers = {}
+            if receipts:
+                qm = ",".join("?" * len(receipts))
+                triggers = dict(self._conn.execute(
+                    f"SELECT receipt_id, trigger FROM m2_event WHERE receipt_id IN ({qm})",
+                    tuple(receipts)).fetchall())
+        return snap, triggers, open_count
+
+    def replace_markers(self, stay_id: int, markers: List[dict]) -> List[dict]:
+        """M3-G2/G6: Marker sind ABGELEITET — der alte Satz wird ersetzt.
+        Liefert nur die NEU hinzugekommenen (fuer Hinweis-Befunde, kein
+        Befund-Sturm bei Neuberechnung). Eine Transaktion."""
+        ts = _utcnow_iso()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            old = {(r[0], r[1], r[2]) for r in cur.execute(
+                "SELECT scope, ref_id, kind FROM plausibility_marker WHERE stay_id=?",
+                (stay_id,)).fetchall()}
+            cur.execute("DELETE FROM plausibility_marker WHERE stay_id=?", (stay_id,))
+            for m in markers:
+                cur.execute(
+                    "INSERT INTO plausibility_marker (stay_id, scope, ref_id, kind, "
+                    "detail, created_ts) VALUES (?,?,?,?,?,?)",
+                    (stay_id, m["scope"], m["ref_id"], m["kind"], m["detail"], ts))
+            self._conn.commit()
+        return [m for m in markers if (m["scope"], m["ref_id"], m["kind"]) not in old]
+
+    def markers_for_stay(self, stay_id: int) -> List[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT scope, ref_id, kind, detail FROM plausibility_marker "
+                "WHERE stay_id=? ORDER BY marker_id", (stay_id,)).fetchall()
+        return [{"scope": r[0], "ref_id": r[1], "kind": r[2], "detail": r[3]}
+                for r in rows]
+
+    def add_finding(self, finding: Finding) -> Finding:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            stored = self._insert_finding(cur, finding)
+            self._conn.commit()
+        return stored
+
+    def all_stay_ids(self) -> List[int]:
+        with self._lock:
+            return [r[0] for r in self._conn.execute(
+                "SELECT stay_id FROM stay ORDER BY stay_id").fetchall()]
+
+    # --- M3 Teil B: begrenzte Schaetzung (abgeleitete Schicht ueber M-1-Hold) --
+
+    def get_hold_cursor(self) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT last_receipt_id FROM m2_hold_cursor WHERE id=0").fetchone()
+        return row[0] if row else 0
+
+    def set_hold_cursor(self, receipt_id: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO m2_hold_cursor (id, last_receipt_id) VALUES (0, ?) "
+                "ON CONFLICT(id) DO UPDATE SET last_receipt_id=excluded.last_receipt_id",
+                (receipt_id,))
+
+    def get_event(self, receipt_id: int) -> Optional[M2Event]:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {self._EV_COLS} FROM m2_event WHERE receipt_id=?",
+                (receipt_id,)).fetchone()
+        return self._row_to_event(row) if row else None
+
+    def bound_candidates(self, patient_key: str, receipt_id: int,
+                         *, before: bool) -> List[int]:
+        """Nachbar-Kandidaten in der SEQUENZ-Ordnung (Receipt-Reihenfolge):
+        angewandte Bewegungs-Events desselben Patienten vor/nach dem
+        zeitlosen Event."""
+        op, order = ("<", "DESC") if before else (">", "ASC")
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT receipt_id FROM m2_event WHERE patient_key=? AND status=? "
+                f"AND trigger IN ('A01','A02','A03') AND receipt_id {op} ? "
+                f"ORDER BY receipt_id {order} LIMIT 20",
+                (patient_key, EV_APPLIED, receipt_id)).fetchall()
+        return [r[0] for r in rows]
+
+    def live_boundary_of(self, receipt_id: int) -> Optional[Tuple[str, int, int]]:
+        """Die LIVE, NICHT-geschaetzte Grenze, die dieses Event aktuell setzt:
+        (Zeit, stay_id, segment_id-des-Traegers) — Quelle einer Schranke.
+        Liefert None, wenn die Grenze entfernt/geoeffnet/nur geschaetzt ist
+        (dann taugt das Event nicht als Schranke -> M3-G7-Rueckfall)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT start_ts, stay_id, segment_id FROM segment "
+                "WHERE start_receipt=? AND start_provenance != ? LIMIT 1",
+                (receipt_id, PROV_ESTIMATED)).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT end_ts, stay_id, segment_id FROM segment "
+                    "WHERE end_receipt=? AND end_provenance != ? "
+                    "AND end_ts IS NOT NULL LIMIT 1",
+                    (receipt_id, PROV_ESTIMATED)).fetchone()
+        return (row[0], row[1], row[2]) if row else None
+
+    def all_estimates(self) -> List[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT receipt_id, stay_id, status, lower_ts, upper_ts, "
+                "lower_source_receipt, upper_source_receipt FROM boundary_estimate "
+                "ORDER BY receipt_id").fetchall()
+        return [{"receipt_id": r[0], "stay_id": r[1], "status": r[2],
+                 "lower_ts": r[3], "upper_ts": r[4],
+                 "lower_source_receipt": r[5], "upper_source_receipt": r[6]}
+                for r in rows]
+
+    def get_estimate(self, receipt_id: int) -> Optional[dict]:
+        for e in self.all_estimates():
+            if e["receipt_id"] == receipt_id:
+                return e
+        return None
+
+    def upsert_estimate(self, receipt_id: int, *, stay_id: Optional[int],
+                        status: str, lower: Optional[str] = None,
+                        upper: Optional[str] = None,
+                        lower_src: Optional[int] = None,
+                        upper_src: Optional[int] = None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO boundary_estimate (receipt_id, stay_id, "
+                "status, lower_ts, upper_ts, lower_source_receipt, "
+                "upper_source_receipt, updated_ts) VALUES (?,?,?,?,?,?,?,?)",
+                (receipt_id, stay_id, status, lower, upper, lower_src, upper_src,
+                 _utcnow_iso()))
+
+    def apply_derived_plan(self, stay_id: int, plan: dict, *, estimate: dict,
+                           finding: Optional[Finding] = None) -> Optional[Finding]:
+        """M3 Teil B: abgeleitete Mutation (Schaetzung anwenden/anpassen/
+        zurueckbauen) — DERSELBE Plan-Anwender + Write-back wie Stufe 2
+        (SF-1: ein Code-Pfad), aber ohne retro_audit: eine Schaetzung ist ein
+        ABGELEITETER Wert, keine Revision eines Fakts. Schaetz-Zeile (und ggf.
+        Rueckfall-Befund) im SELBEN Commit."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN")
+            try:
+                before = self._snapshot_with_cur(cur, stay_id)
+                if before is None:
+                    raise ValueError(f"stay {stay_id} existiert nicht (mehr)")
+                after = apply_plan_to_snapshot(before, plan)
+            except (StopIteration, ValueError) as e:
+                self._conn.rollback()
+                raise ValueError(f"Plan passt nicht zum aktuellen Stand: {e}") from e
+            self._write_back_snapshot(cur, before, after, stay_id)
+            cur.execute(
+                "INSERT OR REPLACE INTO boundary_estimate (receipt_id, stay_id, "
+                "status, lower_ts, upper_ts, lower_source_receipt, "
+                "upper_source_receipt, updated_ts) VALUES (?,?,?,?,?,?,?,?)",
+                (estimate["receipt_id"], estimate.get("stay_id"), estimate["status"],
+                 estimate.get("lower_ts"), estimate.get("upper_ts"),
+                 estimate.get("lower_source_receipt"),
+                 estimate.get("upper_source_receipt"), _utcnow_iso()))
+            stored = self._insert_finding(cur, finding)
+            self._conn.commit()
+        return stored
+
     def marker_of_receipt(self, receipt_id: int) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         with self._lock:
             row = self._conn.execute(
@@ -1608,11 +2045,27 @@ class M2Store:
             pending_count = self._conn.execute(
                 "SELECT COUNT(*) FROM pending_retro WHERE patient_key=?", (patient_key,)
             ).fetchone()[0]
+            # M3 (SF-2 proaktiv): Marker (stay-gebunden) + Schaetzungen
+            # (Event-gebunden, Zeit-Schranken) sind Quasi-Identifikatoren.
+            marker_count = 0
+            if stay_ids:
+                qm = ",".join("?" * len(stay_ids))
+                marker_count = self._conn.execute(
+                    f"SELECT COUNT(*) FROM plausibility_marker WHERE stay_id IN ({qm})",
+                    stay_ids).fetchone()[0]
+            estimate_count = 0
+            if event_ids or stay_ids:
+                qe2 = ",".join("?" * len(event_ids)) or "NULL"
+                qs2 = ",".join("?" * len(stay_ids)) or "NULL"
+                estimate_count = self._conn.execute(
+                    f"SELECT COUNT(*) FROM boundary_estimate WHERE receipt_id IN ({qe2}) "
+                    f"OR stay_id IN ({qs2})", (*event_ids, *stay_ids)).fetchone()[0]
             unresolvable = self._conn.execute(
                 "SELECT COUNT(*) FROM m2_event WHERE pkey_status=?", (PKEY_UNRESOLVED,)
             ).fetchone()[0]
             deleted = (len(event_ids) + len(stay_ids) + seg_count + pending_count
-                       + zst_count + len(audit_ids) + notif_count)
+                       + zst_count + len(audit_ids) + notif_count
+                       + marker_count + estimate_count)
 
             if commit and deleted:
                 cur = self._conn.cursor()
@@ -1634,6 +2087,15 @@ class M2Store:
                     qm = ",".join("?" * len(event_ids))
                     cur.execute(f"DELETE FROM retro_notification WHERE receipt_id IN ({qm})", event_ids)
                 cur.execute("DELETE FROM pending_retro WHERE patient_key=?", (patient_key,))
+                if stay_ids:
+                    qm = ",".join("?" * len(stay_ids))
+                    cur.execute(f"DELETE FROM plausibility_marker WHERE stay_id IN ({qm})", stay_ids)
+                if event_ids or stay_ids:
+                    qe2 = ",".join("?" * len(event_ids)) or "NULL"
+                    qs2 = ",".join("?" * len(stay_ids)) or "NULL"
+                    cur.execute(
+                        f"DELETE FROM boundary_estimate WHERE receipt_id IN ({qe2}) "
+                        f"OR stay_id IN ({qs2})", (*event_ids, *stay_ids))
                 self._conn.commit()
 
         status = "incomplete_uncertain" if unresolvable > 0 else "complete"
@@ -1654,6 +2116,7 @@ class M2Store:
             stays = self._conn.execute(
                 "SELECT stay_id, patient_key, visit_id, pattern, status FROM stay ORDER BY stay_id"
             ).fetchall()
+        estimates = self.all_estimates()
         for sid, pkey, visit, pattern, status in stays:
             segs = self.segments_of(sid)
             out.append({
@@ -1665,6 +2128,13 @@ class M2Store:
                     "start_ts": s.start_ts, "start_provenance": s.start_provenance,
                     "end_ts": s.end_ts, "end_provenance": s.end_provenance,
                 } for s in segs],
+                # M3 Teil A (M-4-Kontrakt d): Marker mitliefern — AION muss
+                # markierte Artefakte defensiv behandeln koennen.
+                "plausibility_markers": self.markers_for_stay(sid),
+                # M3 Teil B (M-4-Kontrakt e): Schaetzungen als EIGENER Kanal —
+                # Schranken + Quellen, herausfilterbar (epsilon-DP-Schutz).
+                "estimates": [e for e in estimates
+                              if e["stay_id"] == sid and e["status"] == EST_ACTIVE],
             })
         return out
 
@@ -1676,7 +2146,9 @@ class M2Store:
                                 ("findings", "finding"), ("delays", "delay_log"),
                                 ("retro_audits", "retro_audit"),
                                 ("retro_notifications", "retro_notification"),
-                                ("tombstones", "pending_retro")):
+                                ("tombstones", "pending_retro"),
+                                ("markers", "plausibility_marker"),
+                                ("estimates", "boundary_estimate")):
                 c[name] = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         return c
 
@@ -1718,6 +2190,17 @@ class M1OutputReader:
             out.append((rid, bytes(raw_row[0]) if raw_row else None, trig, prov))
         return out
 
+    def scan_holds_after(self, cursor: int) -> List[Tuple[int, str, bytes]]:
+        """M3 Teil B: M-1s hold_timequality-Queue NUR LESEND — die Kandidaten
+        fuer die begrenzte Schaetzung. M-1s Hold bleibt autoritativ; M-2
+        loescht/aendert dort NICHTS."""
+        rows = self._m1.execute(
+            "SELECT receipt_id, trigger, raw FROM hold_queue "
+            "WHERE kind='hold_timequality' AND receipt_id > ? ORDER BY receipt_id",
+            (cursor,),
+        ).fetchall()
+        return [(rid, trig, bytes(raw)) for (rid, trig, raw) in rows]
+
     def close(self) -> None:
         self._m1.close()
         self._intake.close()
@@ -1748,12 +2231,14 @@ class MapperM2:
         time_fields: Optional[TimeFieldConfig] = None,
         visit_fields: Optional[VisitFieldConfig] = None,
         patient_key_config: Optional[PatientKeyConfig] = None,
+        plausibility: Optional[PlausibilityConfig] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
     ):
         self.reader      = reader
         self.store       = store
         self.notifier    = notifier
         self.windows     = windows or WindowConfig()
+        self.plausibility = plausibility or PlausibilityConfig()
         self.time_fields = time_fields or TimeFieldConfig()
         self.visit_fields = visit_fields or VisitFieldConfig()
         self.patient_key_config = patient_key_config or PatientKeyConfig()
@@ -2170,6 +2655,191 @@ class MapperM2:
             n += 1
         return n
 
+    # --- M3 Teil A: Plausibilitaet — markieren, durchlassen, NIE reparieren ----
+
+    def reassess_plausibility(self) -> int:
+        """Marker fuer ALLE Aufenthalte neu ableiten (abgeleiteter Wert, nie
+        eingefroren — M3-G2). Befunde nur fuer NEU hinzugekommene Marker
+        (replace_markers-Diff), kein Befund-Sturm. Referenz-Implementierung:
+        vollstaendiger Pass pro Poll; ein Produktiv-Mapper wuerde nach
+        beruehrten stays filtern."""
+        new_total = 0
+        for stay_id in self.store.all_stay_ids():
+            new_total += self._reassess_stay(stay_id)
+        return new_total
+
+    def _reassess_stay(self, stay_id: int) -> int:
+        data = self.store.assessment_inputs(stay_id)
+        if data is None:
+            return 0
+        snapshot, triggers, open_count = data
+        markers = compute_plausibility_markers(
+            snapshot, triggers, open_count, self.plausibility,
+            self.windows.open_overdue)
+        new = self.store.replace_markers(stay_id, markers)
+        for m in new:
+            # Hinweis, KEIN Hold — und PID-frei OHNE Standort+Zeit-Paare
+            # (SF-2: nur Marker-Art/stay/scope, kein Quasi-Identifikator).
+            msh3, msh4, msh10 = self.store.marker_of_receipt(
+                snapshot["stay"]["opened_receipt"])
+            stored = self.store.add_finding(Finding(
+                receipt_id=snapshot["stay"]["opened_receipt"],
+                kind=FINDING_PLAUSIBILITY, trigger=None,
+                msh3=msh3, msh4=msh4, msh10=msh10,
+                reason=(f"Plausibilitaets-Marker '{m['kind']}' an stay {stay_id} "
+                        f"({m['scope']}) — Hinweis, kein Hold: das Artefakt ist mit "
+                        f"ORIGINALZEITEN durchgelassen (nie repariert); Bewertung "
+                        f"ist AION-Sache."),
+                created_ts=_utcnow_iso()))
+            self._notify(stored)
+        return len(new)
+
+    # --- M3 Teil B: begrenzte Schaetzung (abgeleitete Schicht, NUR A02) --------
+
+    def ingest_hold(self, receipt_id: int, raw: bytes, trigger: str,
+                    *, now: Optional[datetime] = None) -> str:
+        """Kandidaten aus M-1s hold_timequality-Queue (read-only gescannt).
+        Idempotent wie ingest_usable (Vermerk + Marker-Identitaet). Nur ein
+        zeitloses A02 mit Patient ist einklemmbar (innere Grenze) — alles
+        andere bleibt schlicht M-1-Hold (vermerkt als hold_unsupported)."""
+        existing = self.store.processed_outcome(receipt_id)
+        if existing is not None:
+            return existing
+        now = now or self.now_fn()
+        ev = parse_usable_event(
+            receipt_id, raw, trigger,
+            time_fields=self.time_fields,
+            patient_key_config=self.patient_key_config,
+            visit_fields=self.visit_fields,
+        )
+        ev.arrival_ts = now.isoformat()
+        if marker_complete(ev.marker) and self.store.marker_processed(ev.marker):
+            self.store.ingest_event(ev, OUT_SUPPRESSED, record_seen_marker=False)
+            return OUT_SUPPRESSED
+        if trigger != "A02" or ev.event_ts is not None or ev.patient_key is None:
+            self.store.ingest_event(ev, OUT_HOLD_UNSUPPORTED)
+            return OUT_HOLD_UNSUPPORTED
+        self.store.ingest_event(ev, OUT_ESTIMATION_CANDIDATE,
+                                status=EV_ESTIMATE, window="jitter")
+        self.store.upsert_estimate(receipt_id, stay_id=None, status=EST_WAITING)
+        return OUT_ESTIMATION_CANDIDATE
+
+    def _derive_bounds(self, ev: M2Event) -> Optional[dict]:
+        """M3-G3: Schranken aus den LIVE Nachbar-Grenzen in Sequenz-Ordnung.
+        Beide Seiten muessen existieren, im SELBEN stay liegen und geordnet
+        sein — sonst None (weiter Hold). Schranken-Quellen werden mitgefuehrt
+        (M3-G4)."""
+        lower = None
+        for rid in self.store.bound_candidates(ev.patient_key, ev.receipt_id, before=True):
+            b = self.store.live_boundary_of(rid)
+            if b is not None:
+                lower = {"ts": b[0], "stay_id": b[1], "segment_id": b[2], "src": rid}
+                break
+        upper = None
+        for rid in self.store.bound_candidates(ev.patient_key, ev.receipt_id, before=False):
+            b = self.store.live_boundary_of(rid)
+            if b is not None:
+                upper = {"ts": b[0], "stay_id": b[1], "segment_id": b[2], "src": rid}
+                break
+        if lower is None or upper is None:
+            return None
+        if lower["stay_id"] != upper["stay_id"] or lower["ts"] > upper["ts"]:
+            return None
+        return {"stay_id": lower["stay_id"], "lower": lower["ts"], "upper": upper["ts"],
+                "lower_src": lower["src"], "upper_src": upper["src"],
+                "lower_segment_id": lower["segment_id"]}
+
+    def process_estimates(self) -> dict:
+        """M3-G7: Schaetzungen sind ABGELEITET — jeder Lauf berechnet jede
+        Schaetzung aus den dann-aktuellen Schranken neu: anwenden, anpassen,
+        oder (Schranke entfiel) zurueckbauen -> Rueckfall auf Hold."""
+        stats = {"applied": 0, "updated": 0, "reverted": 0, "noop": 0}
+        for est in self.store.all_estimates():
+            stats[self._rederive_estimate(est)] += 1
+        return stats
+
+    def _rederive_estimate(self, est: dict) -> str:
+        ev = self.store.get_event(est["receipt_id"])
+        if ev is None:
+            return "noop"                                   # z.B. Erasure
+        bounds = self._derive_bounds(ev)
+        pred, succ = self.store.boundary_segments(ev.receipt_id)
+        applied = pred is not None and succ is not None
+
+        if bounds is None:
+            if applied:
+                # M3-G7: Schranke entfiel -> geschaetzte Grenze ZURUECKBAUEN
+                # (derselbe Plan-Anwender, remove_boundary) + Befund.
+                msh3, msh4, msh10 = self.store.marker_of_receipt(ev.receipt_id)
+                finding = Finding(
+                    receipt_id=ev.receipt_id, kind=FINDING_ESTIMATE_REVERT,
+                    trigger=ev.trigger, msh3=msh3, msh4=msh4, msh10=msh10,
+                    reason=("Schaetz-Schranke entfiel (Rueckwirkung) — geschaetzte "
+                            "Grenze zurueckgebaut; das Event faellt auf "
+                            "hold_timequality zurueck (M-1-Hold war nie weg)."),
+                    created_ts=_utcnow_iso())
+                stored = self.store.apply_derived_plan(
+                    pred.stay_id,
+                    {"op": RETRO_REMOVE_BOUNDARY, "stay_id": pred.stay_id,
+                     "pred_segment_id": pred.segment_id,
+                     "succ_segment_id": succ.segment_id},
+                    estimate={"receipt_id": ev.receipt_id, "stay_id": None,
+                              "status": EST_REVERTED},
+                    finding=finding)
+                self._notify(stored)
+                self._reassess_stay(pred.stay_id)
+                return "reverted"
+            if est["status"] == EST_ACTIVE:
+                # Stay selbst weg (z.B. A11) — Schaetz-Zeile ehrlich zuruecksetzen.
+                self.store.upsert_estimate(est["receipt_id"], stay_id=None,
+                                           status=EST_REVERTED)
+                return "reverted"
+            return "noop"
+
+        if applied:
+            unchanged = (est["status"] == EST_ACTIVE
+                         and est["lower_ts"] == bounds["lower"]
+                         and est["upper_ts"] == bounds["upper"]
+                         and est["lower_source_receipt"] == bounds["lower_src"]
+                         and est["upper_source_receipt"] == bounds["upper_src"])
+            if unchanged:
+                return "noop"
+            self.store.apply_derived_plan(
+                bounds["stay_id"],
+                {"op": RETRO_UPDATE_ESTIMATED, "stay_id": bounds["stay_id"],
+                 "pred_segment_id": pred.segment_id,
+                 "succ_segment_id": succ.segment_id,
+                 "lower": bounds["lower"], "upper": bounds["upper"]},
+                estimate={"receipt_id": ev.receipt_id, "stay_id": bounds["stay_id"],
+                          "status": EST_ACTIVE, "lower_ts": bounds["lower"],
+                          "upper_ts": bounds["upper"],
+                          "lower_source_receipt": bounds["lower_src"],
+                          "upper_source_receipt": bounds["upper_src"]})
+            self._reassess_stay(bounds["stay_id"])
+            return "updated"
+
+        # Noch nicht angewandt: Einklemm-Stelle = das Segment, das an der
+        # unteren Schranke beginnt UND an der oberen endet (das Sandwich).
+        # Mehrere zeitlose Events im selben Intervall: nur das erste wird
+        # eingeklemmt, weitere bleiben Hold (keine eindeutige Stelle).
+        split = self.store.get_segment(bounds["lower_segment_id"])
+        if split is None or split.end_receipt != bounds["upper_src"]:
+            return "noop"                                   # weiter waiting/Hold
+        self.store.apply_derived_plan(
+            bounds["stay_id"],
+            {"op": RETRO_INSERT_ESTIMATED, "stay_id": bounds["stay_id"],
+             "split_segment_id": split.segment_id,
+             "lower": bounds["lower"], "upper": bounds["upper"],
+             "event_receipt": ev.receipt_id, "pv1_3_raw": ev.pv1_3_raw,
+             "ward": ev.ward, "room": ev.room, "bed": ev.bed},
+            estimate={"receipt_id": ev.receipt_id, "stay_id": bounds["stay_id"],
+                      "status": EST_ACTIVE, "lower_ts": bounds["lower"],
+                      "upper_ts": bounds["upper"],
+                      "lower_source_receipt": bounds["lower_src"],
+                      "upper_source_receipt": bounds["upper_src"]})
+        self._reassess_stay(bounds["stay_id"])
+        return "applied"
+
     def _pending_stay_in_join_window(self, ev: M2Event) -> Optional[StayRow]:
         """Juengste offene A04-Episode des Patienten, deren Ankunfts-Abstand zum
         A01 im Join-Fenster liegt. Visit ist nur BESTAETIGEND (Briefing §6):
@@ -2274,12 +2944,24 @@ class MapperM2:
                     raise SimulatedCrash(
                         "crash after the Vermerk, before the cursor advance (M2-G1)")
                 self.store.set_cursor(receipt_id)
+        holds = 0
+        if self.reader is not None:                       # M3 Teil B: Hold-Kandidaten
+            hold_cursor = self.store.get_hold_cursor()
+            for receipt_id, trigger, raw in self.reader.scan_holds_after(hold_cursor):
+                self.ingest_hold(receipt_id, raw, trigger, now=now)
+                holds += 1
+                self.store.set_hold_cursor(receipt_id)    # Vermerk-vor-Cursor (geerbt)
         applied   = self.apply_ripe(now)
+        est_stats = self.process_estimates()              # M3-G3/G7: ableiten
+        markers   = self.reassess_plausibility()          # M3-G1: markieren
         finalized = self.finalize_patterns(now)
         overdue   = self.check_open_durations(now)
         expired   = self.expire_tombstones(now)           # M2c-G6 TTL-Sweep
         redelivered = self.redeliver_pending_retro()      # M2c-G7 Backlog
         return {"ingested": ingested, "applied": applied,
+                "hold_candidates": holds,
+                "estimates": {k: v for k, v in est_stats.items() if k != "noop"},
+                "new_markers": markers,
                 "finalized_c": len(finalized), "overdue_findings": overdue,
                 "tombstones_expired": expired, "retro_redelivered": redelivered}
 
@@ -2331,6 +3013,9 @@ def main(argv=None) -> int:
     p.add_argument("--tombstone-ttl", type=int, default=WindowConfig.tombstone_wait_ttl_s,
                    help="M2c: wie lange eine wartende Negation auf ihr Zielereignis "
                         "wartet, bevor der Befund kommt (Sekunden; sie bleibt liegen)")
+    p.add_argument("--known-wards", default="",
+                   help="M3: Komma-Liste bekannter Stationscodes (leer = Pruefung "
+                        "aus; STANDORTSPEZIFISCH, an echten Daten zu verifizieren)")
     p.add_argument("--smtp-host", default="", help="SMTP-Server (leer -> laute Warnung, nur lokal)")
     p.add_argument("--smtp-port", type=int, default=25)
     p.add_argument("--smtp-from", default="")
@@ -2348,10 +3033,12 @@ def main(argv=None) -> int:
                             join_window_s=args.join_window,
                             open_overdue=thresholds,
                             tombstone_wait_ttl_s=args.tombstone_ttl)
+    plaus = PlausibilityConfig(
+        known_wards=tuple(w.strip() for w in args.known_wards.split(",") if w.strip()) or None)
     notifier = build_notifier(_build_smtp_config(args))
     reader   = M1OutputReader(args.m1_db, args.intake_db)
     store    = M2Store(args.m2_db)
-    mapper   = MapperM2(reader, store, notifier, windows=windows)
+    mapper   = MapperM2(reader, store, notifier, windows=windows, plausibility=plaus)
 
     def _poll():
         summary = mapper.poll_once()

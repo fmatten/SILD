@@ -130,8 +130,14 @@ EXPECTED_CORPUS_STAYS = {
     "UKH|P100004": ExpectedStay("C", "closed", "V100004", [
         ("AMB", iso("20260610140000"), iso("20260611001500")),
     ]),
+    # P100005: seit Stufe 3 wird der ERSTE geholdete A02 (msg31, IMC) als
+    # beidseitig begrenzte Schaetzung eingeklemmt (Sandwich A01 15:20 .. A03
+    # 18:00, Maximal-Ausdehnungs-Kodierung: beide Segmente spannen das volle
+    # Schranken-Intervall, Grenzseiten PROV_ESTIMATED). msg51/52 bleiben
+    # Hold (keine eindeutige Einfuege-Stelle mehr im selben Intervall).
     "UKH|P100005": ExpectedStay("A", "closed", "V100005", [
-        ("KAR", iso("20260610152000"), iso("20260611180000")),  # all A02 held
+        ("KAR", iso("20260610152000"), iso("20260611180000")),
+        ("IMC", iso("20260610152000"), iso("20260611180000")),
     ]),
     "UKH|P100006": ExpectedStay("B", "open", "V100006", [
         ("NA",  iso("20260610183000"), iso("20260610184500")),
