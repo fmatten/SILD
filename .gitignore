@@ -3,3 +3,4 @@ __pycache__/
 *.log
 *.jsonl
 FM-4-v2.pdf
+sild.egg-info/

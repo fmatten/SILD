@@ -36,6 +36,22 @@ Methodenurheber. Kontakt: ebenfalls ISCaD.
 
 ---
 
+## Arbeitsweise & KI-Transparenz
+
+Methode, Spezifikation und konforme Entscheidungen verantwortet der Autor
+(ISCaD GmbH). Die Code-Umsetzung erfolgt im Workflow
+*Spezifikation → Implementierung → Konformitätsprüfung* unter Einsatz von
+KI-Assistenz (Claude Code), erkennbar an den entsprechenden
+`Co-authored-by`-Trailern in der Commit-Historie.
+
+Jede Spec-Entscheidung, jede Severity-Wahl und jede Vektor-Anpassung ist
+nachvollziehbar dokumentiert; das offen veröffentlichte Selbst-Audit
+prüft genau diese Konsistenz von Spezifikation und Code. Lizenz- und
+Urheberverantwortung liegt vollständig beim Autor — die KI-Attribution
+ist ein Beleg der Werkzeug-Nutzung, kein Urheberanspruch.
+
+---
+
 ## Theoretische Grundlage
 
 SILD ist die direkte operative Umsetzung von **FM-4** (*Signal-Loss Inspection at
