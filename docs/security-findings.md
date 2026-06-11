@@ -6,9 +6,9 @@ the dataflow.
 
 | ID | Title | Status | Severity |
 |----|-------|--------|----------|
-| SILD-SF-1 | Durable v2 intake store holds raw PII — erasure + backup | **Erasure BUILT; backup DOCUMENTED** | high (privacy) |
+| SILD-SF-1 | Durable v2 intake store holds raw PII — erasure + backup | **CLOSED — erasure BUILT; backup-erasure consciously delegated to the operator, documented** | high (privacy) |
 | SILD-SF-2 | JSONL audit may carry INDIRECT identifiers (order numbers) | **OPEN — documented limitation** | medium (privacy) |
-| SILD-SF-3 | M-1 Mapper-DB hold-queue holds raw PII — erasure + backup + schema evolution | **Erasure BUILT; backup DOCUMENTED; schema-migration OPEN** | high (privacy) |
+| SILD-SF-3 | M-1 Mapper-DB hold-queue holds raw PII — erasure + backup + schema evolution | **Erasure BUILT; backup delegated (see SF-1); schema migration DEFERRED — trigger documented** | high (privacy) |
 
 ---
 
@@ -45,12 +45,36 @@ attributed and MIGHT belong to the patient → it forces status
 `incomplete_uncertain` with a residual-risk count, **never** a silent "complete".
 This is the AION A/B dead-letter case, one stage earlier: unattributable ≠ clean.
 
-**Backup — DOCUMENTED obligation (not yet automated).** The store MUST be
-included in the backup story, and **an erasure that does not also reach backups
-is incomplete**. Operators MUST either (a) include the store in backups with a
-matching backup-erasure procedure, or (b) exclude it from backups and rely on the
-durable store + recovery sweep alone. Automating backup-erasure is out of scope
-here and remains the open part of SILD-SF-1.
+**Backup — consciously DELEGATED to the operator (this closes SF-1).** SILD
+itself creates **no backups** — there is no backup code path anywhere in SILD;
+every backup of the SILD stores is operator infrastructure (volume snapshots,
+dump jobs, …). Stated as plainly as possible:
+
+- The live erasure (`erase_patient` / the `erase` CLIs) covers **all live
+  stores completely** — intake store, M-1 Mapper-DB and M-2 DB, including every
+  quasi-identifier table (cf. SILD-SF-2 for what counts as one). It does **not**
+  and **cannot** reach operator-made copies; **an erasure that does not also
+  reach backups is incomplete**.
+- **Operator obligation (GDPR Art. 17, right to erasure):** whoever backs up
+  the SILD stores MUST do one of:
+  - (a) operate a **backup-erasure procedure** that removes erased patients
+    from backups too, or
+  - (b) **consciously exclude** the SILD stores from backups, or
+  - (c) use **crypto-shredding** (backup encryption + key destruction) as the
+    erasure substitute.
+- This obligation is anchored as a pre-production checklist in the stack README
+  (`sild_monitoring_stack/README.md`, „Vor Produktivbetrieb —
+  Betreiber-Checkliste“).
+
+**Status: CLOSED — consciously delegated to the operator, documented.** No
+SILD-side backup(-erasure) implementation is planned; the delegation is
+architecturally deliberate and consistent with G6 (at-rest encryption is
+likewise delegated to ops + enforced loudly).
+
+> **Honest limit.** Whether this delegation legally SUFFICES to shift the
+> erasure obligation to the operator is a legal question (ISCaD GmbH / counsel).
+> This documentation makes the delegation as clear as possible but makes **no
+> legal claim**.
 
 **Multi-identifier edge cases (handled in the extractor).**
 - Several MR-typed PID-3 repetitions (`~`, e.g. two authorities) → the message is
@@ -118,20 +142,46 @@ erasure read incomplete forever — the alarm that always rings is no alarm.
 configurable, raw v2 is not encrypted by M-1 (operator's encrypted volume), and
 the surface is documented in the README ("G6-analog für die Mapper-DB").
 
-**Backup — DOCUMENTED obligation (not yet automated).** Same as SILD-SF-1: an
-erasure that does not also reach Mapper-DB backups/snapshots is incomplete. A full
-patient erasure must reach **both** SILD's store and the Mapper-DB and the
-operator's backup rotation.
+**Backup — delegated to the operator (see SILD-SF-1, closed).** Same line as
+SILD-SF-1: an erasure that does not also reach Mapper-DB backups/snapshots is
+incomplete. A full patient erasure must reach **both** SILD's store and the
+Mapper-DB and the operator's backup rotation — the operator obligation
+(backup-erasure procedure OR conscious exclusion OR crypto-shred) is spelled out
+in SILD-SF-1 and in the stack-README operator checklist.
 
-**Schema evolution — OPEN (tracked).** The Mapper-DB schema is created with
-`CREATE TABLE IF NOT EXISTS`, which is sufficient **now** (greenfield — no
-persistent Mapper-DBs exist in the field, so no migration path is needed yet and
-adding one would be over-engineering). **But once persistent Mapper-DBs exist in
-the field, schema evolution becomes an open point**: `CREATE TABLE IF NOT EXISTS`
-does **not** add new columns to an already-existing table (e.g. the
-`disposition.time_provenance` column added for time-provenance would be missing on
-an old DB). This is the SILD-side of the Alembic lesson — recorded here, not
-solved here.
+**Schema evolution — DEFERRED with a named trigger (open, deliberate).**
+Inventory finding (2026-06): SILD has **never** used `ALTER TABLE`; every schema
+extension so far was an **additive new table**, which the self-migration pattern
+(`CREATE TABLE IF NOT EXISTS` on every start) covers. So nothing is acute and no
+migration rail is built now (greenfield — adding one today would be
+over-engineering). What the pattern does **not** migrate:
+
+- (a) **changes to existing tables** — a new/changed column or type would need
+  `ALTER TABLE`; `CREATE TABLE IF NOT EXISTS` silently leaves the old shape in
+  an existing DB (e.g. the `disposition.time_provenance` column added for
+  time-provenance would be missing on an old DB);
+- (b) **view-definition changes** — `CREATE VIEW IF NOT EXISTS`
+  (`v_aion_stay` / `v_aion_segment` / `v_aion_change` in `sild_mapper_m2.py`)
+  leaves the **old** definition standing in existing DBs.
+
+**Trigger.** The first future change to a `v_aion_*` view definition OR the
+first column change to an existing table requires a real migration rail:
+`PRAGMA user_version` + versioned migration steps (for views, `DROP VIEW` +
+`CREATE VIEW` inside the versioned step). Until then the documented assumption
+is **additive changes only** (new tables). This is the SILD-side of the Alembic
+lesson — recorded here, not solved here.
+
+> **Hinweis (M-4-Kopplung):** Eine `v_aion_*`-View-Änderung ist zugleich eine
+> Änderung der **M-4-Vertragsfläche** (M4-G1: die Views sind die eingefrorene
+> Pull-Schnittstelle für AION, siehe `docs/aion-pull-contract.md`). Sie
+> erfordert daher nicht nur die Migrations-Schiene (DROP+CREATE bzw.
+> `user_version`), sondern auch **Koordination mit dem AION-Konsumenten**
+> (B.1b im AION-Repo) — eine View-Änderung ist ein **Vertragsbruch gegenüber
+> AION**, wenn sie unkoordiniert erfolgt. Daher doppelt teuer; bewusst
+> durchführen.
+
+**Status: stays OPEN/deferred with the named trigger — deliberate, not
+forgotten.**
 
 **Related.**
 - **SILD-SF-1** (above) — the analogous finding on SILD's ingress store; same

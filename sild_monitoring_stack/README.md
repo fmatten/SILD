@@ -106,6 +106,35 @@ sild_monitoring_stack/
 
 Sonst nichts. Keine Python-Installation, keine Node-Installation, kein lokaler Prometheus, kein lokaler Grafana — alles läuft in Containern.
 
+## Vor Produktivbetrieb — Betreiber-Checkliste
+
+Der Stack ist eine lokale Methoden-Reproduktion. Für den Produktivbetrieb ist
+der **Betreiber** für Infrastruktur-Pflichten verantwortlich, die SILD **bewusst
+nicht** übernimmt. Vor dem ersten Produktivbetrieb abhaken:
+
+- [ ] **Backup-Erasure eingerichtet (SILD-SF-1):** SILD erzeugt selbst **keine**
+  Backups — jede Sicherung der SILD-Stores (`sild_intake.sqlite`, M-1-Mapper-DB,
+  M-2-DB) ist Betreiber-Infrastruktur, und die Live-Löschung (`erase`) erreicht
+  Backups **nicht**. Deshalb: Backup-Erasure-Prozedur eingerichtet, die
+  gelöschte Patienten auch aus Backups entfernt, **ODER** Stores bewusst von
+  Backups ausgeschlossen, **ODER** crypto-shred (Backup-Verschlüsselung +
+  Key-Löschung) als Erasure-Ersatz.
+- [ ] **At-rest-Verschlüsselung (RFC §11.1 / G6):** alle Stores und das
+  JSONL-Audit liegen auf verschlüsseltem Volume — SILD verschlüsselt **nicht**
+  selbst (der Filter warnt beim Start).
+- [ ] **Zugriffskontrolle aufs JSONL-Audit (SILD-SF-2):** das JSONL ist nicht
+  garantiert PII-frei (indirekte Identifikatoren in Finding-Locations) und
+  untersteht denselben Zugriffskontrollen wie die Stores.
+- [ ] **Löschprozess (DSGVO Art. 17):** die `erase`-CLIs aller drei Stores sind
+  in den betrieblichen Löschprozess aufgenommen — `sild_durable_store.py erase`,
+  `sild_mapper_m1.py erase`, `sild_mapper_m2.py erase` (je dry-run per Default,
+  `--commit` explizit).
+
+> Ob die Delegation der Backup-Erasure an den Betreiber rechtlich AUSREICHT, ist
+> eine juristische Frage (ISCaD GmbH / Anwalt) — diese Checkliste macht die
+> Pflicht so klar wie möglich, trifft aber keine Rechtsaussage. Details:
+> [`docs/security-findings.md`](../docs/security-findings.md), SILD-SF-1.
+
 ## Services im Detail
 
 ### `aion-mock` (Port 2576)
@@ -188,8 +217,8 @@ python sild_durable_store.py erase --store /data/sild_intake.sqlite \
 
 ### `sild-mapper-m1` — Intake-Sichter (M-1, read-only)
 
-M-1 ist die Stufe **zwischen** SILDs durablem Intake und dem (noch nicht
-gebauten) Intervall-Aufbau M-2. M-1 liest SILDs `sild_intake.sqlite` **nur
+M-1 ist die Stufe **zwischen** SILDs durablem Intake und dem Intervall-Aufbau
+M-2 (`sild_mapper_m2.py`). M-1 liest SILDs `sild_intake.sqlite` **nur
 lesend** (`mode=ro` + `PRAGMA query_only` — kann SILDs Store nicht beschreiben),
 sichtet jede Nachricht zustandsleicht und entscheidet, **was an M-2 weitergereicht
 wird** — ohne Intervalle zu bauen, Stornos zu widerrufen oder Zeiten zu schätzen
@@ -286,7 +315,8 @@ python sild_mapper_m1.py erase --mapper-db /data/sild_mapper.sqlite \
 > **Backup-Story:** Eine Löschung trifft nur die *lebende* Mapper-DB. Backups/
 > Snapshots des gemounteten Volumes liegen außerhalb von M-1 — eine vollständige
 > Erasure (SILD **und** Mapper-DB) muss die Backup-Rotation des Betreibers
-> einschließen (gleiche Linie wie SILD-SF-1 für SILDs Store).
+> einschließen (gleiche Linie wie SILD-SF-1 für SILDs Store; bewusst an den
+> Betreiber delegiert — siehe „Vor Produktivbetrieb — Betreiber-Checkliste").
 
 ### `load-generator`
 Sendet kontinuierlich Test-Nachrichten an den Filter — durchschnittlich 1.5 pro Sekunde, mit zufälligen Bursts (1–5 Nachrichten am Stück, dann längere Pause). Sorgt dafür, dass das Dashboard sofort lebendige Daten zeigt.
