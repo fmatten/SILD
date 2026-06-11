@@ -5,9 +5,48 @@ Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.0.0
 
 ---
 
-## [Unreleased] — persist-before-ack durabler v2-Eingang (Variante A)
+## [Unreleased] — durabler v2-Eingang (Variante A) + ADT-Mapper-Kette M-1–M-4
 
 ### Hinzugefügt
+- **M-1 ADT-Mapper** (`sild_mapper_m1.py`): Polling-Konsument, liest den
+  SILD-Intake **read-only**, eigene Mapper-DB; A04 intervall-relevant
+  (Eintritts-Event für Muster B/C); 3-Wege-Zeitqualität
+  (usable / hold_timequality / hold_malformed) mit Zeit-Provenienz;
+  PID-freier Notifier (Speichern vor Melden); Mapper-DB-Erasure
+  (SILD-Lesart-A, fail-closed).
+- **Synthetischer ADT-Korpus** (54 Nachrichten, 7 Patienten,
+  `samples/adt_m2_corpus/`) + separates Interface-Sample
+  (`samples/adt_m2_interface/`, sauber datierter A02 mit ZBE-2) — beide
+  synthetisch etikettiert.
+- **M-2 Stufe 1** (`sild_mapper_m2.py`): zeit-sortierte
+  Vorwärts-Rekonstruktion von `stay` + Lage-Segmenten (Eintrittsmuster
+  A/B/C), zwei Wartefenster (Jitter + Notaufnahme-Join, Ankunfts-Wanduhr),
+  offene Segmente (NULL-Ende) mit klassendifferenzierter
+  Offen-Dauer-Überwachung (ambulant/stationär/intensiv), Idempotenz +
+  Cursor-Disziplin aus M-1 geerbt, rohe PV1-3-Komponenten am Segment +
+  Kontakt-Einheit zur Compute-Zeit (Über-Kontaktierungs-Sperre nur bei
+  zeitlicher Überlappung).
+- **M-2 Stufe 2 (M2c)**: revidierbarer Intervall-Kern — Storno A11/A12/A13,
+  Update A08, verspätetes Normal-Event über EINEN mutate-Kern; Modell A
+  (Mutation in place, Historie im Audit-Log) mit persist-before-mutate +
+  idempotenter Mutation; ZST-Zielbindung fail-closed (MSH-10 + Typ + Zeit +
+  Patient, kein Vier-Felder-Fallback); wartende Negationen (Tombstones)
+  mit TTL, bleiben nach Ablauf liegen; aktive PID-freie
+  AION-Benachrichtigung (alt→neu, Faktum statt Bewertung).
+- **M-2 Stufe 3**: Plausibilität markieren + durchlassen, **nie reparieren**
+  (Originalzeiten erhalten; 7 Marker-Arten, abgeleitet statt eingefroren);
+  begrenzte Zeit-Schätzung `PROV_ESTIMATED` — nur beidseitig begrenzt
+  (zeitloses A02 zwischen zwei bekannten Nachbar-Grenzen), geliefert als
+  Intervall [t₁,t₂] (Maximal-Ausdehnungs-Kodierung, nie ein Punkt),
+  isolierbar für ε-DP-Ausschluss; Schätzung folgt Stufe-2-Rückwirkungen
+  (Neuableitung / Rückfall auf Hold).
+- **M-4 Pull-Kontrakt SILD→AION (SILD-Seite)**: SQL-Views
+  `v_aion_stay` / `v_aion_segment` / `v_aion_change` als stabile
+  Vertragsfläche (AION liest read-only), `stay_revision` (atomare Revision
+  an allen Schreibstellen) + `change_payload` (selbst-erklärender
+  Änderungs-Strom); Kontrakt-Dokument `docs/aion-pull-contract.md`
+  (Lese-Regeln, PID-Scope, Storno vs. Erasure). AION-Konsument B.1b ist
+  separat im AION-Repo.
 - `sild_durable_store.py` — durabler v2-Eingang **persist-before-ack** (Variante A):
   `frame → persist(fsync) → analyse → ack → forward`. SQLite (stdlib),
   `journal_mode=WAL, synchronous=FULL`. Garantien G1–G6 mit benannten Tests.
