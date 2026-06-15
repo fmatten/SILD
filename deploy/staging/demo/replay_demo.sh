@@ -18,24 +18,26 @@ SETTLE="${SETTLE:-14}"   # > Publisher-Intervall (10s) + Poll (5s) -> Snapshot f
 
 python3 "$HERE/make_demo_messages.py"
 
-show() {   # liest den Snapshot READ-ONLY (wie AION), zeigt Stay + Segmente
-  echo "    --- AION-Sicht (m2_pull.db, mode=ro) ---"
-  python3 - "$PULL_DB" <<'PY'
-import sqlite3, sys
-db = sys.argv[1]
-try:
-    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-except Exception as e:
-    print(f"    (Snapshot noch nicht da: {e})"); raise SystemExit
+show() {   # liest den Snapshot READ-ONLY GENAU WIE AION: Wegwerf-Container,
+           # uid 1000, :ro-Mount. So muss `data/` NICHT host-traversierbar sein
+           # (bleibt 0750) — der Schutz kommt aus Ownership + :ro, nicht Dir-Mode.
+  echo "    --- AION-Sicht (m2_pull.db, mode=ro, via Wegwerf-Container uid 1000) ---"
+  local q; q="$(mktemp)"
+  cat > "$q" <<'PY'
+import sqlite3
+c = sqlite3.connect("file:/snap.db?mode=ro", uri=True); c.execute("PRAGMA query_only=ON")
 for r in c.execute("SELECT patient_key,visit_id,pattern,status FROM v_aion_stay WHERE patient_key='UKH|DEMO001'"):
     print(f"    stay: {r[0]} visit={r[1]} muster={r[2]} status={r[3]}")
-segs = list(c.execute("SELECT ward,start_ts,end_ts FROM v_aion_segment seg "
-                      "JOIN v_aion_stay s USING(stay_id) WHERE s.patient_key='UKH|DEMO001' ORDER BY seq"))
-for w,a,b in segs:
+for w,a,b in c.execute("SELECT ward,start_ts,end_ts FROM v_aion_segment seg "
+                       "JOIN v_aion_stay s USING(stay_id) WHERE s.patient_key='UKH|DEMO001' ORDER BY seq"):
     print(f"    segment: {w}  {a} -> {b or 'OFFEN'}")
 print(f"    changes: {c.execute('SELECT COUNT(*) FROM v_aion_change').fetchone()[0]}")
-c.close()
 PY
+  docker run --rm --user 1000:1000 --network none \
+    -v "$q":/q.py:ro -v "$PULL_DB":/snap.db:ro \
+    "${READER_IMAGE:-aion-clinical-local:1.19.0}" python3 /q.py 2>&1 | sed 's/^/    /' \
+    || echo "    (Snapshot noch nicht lesbar)"
+  rm -f "$q"
 }
 
 send() {   # $1 = HL7-Datei

@@ -58,7 +58,12 @@ services:
               "--m1-db", "/data/m1.db",
               "--intake-db", "/data/intake.db",
               "--m2-db", "/data/m2.db",
-              "--poll-interval", "5"]
+              "--poll-interval", "5",
+              # Jitter-Fenster: puffert Events gegen Out-of-Order-Ankunft, bevor
+              # sie auf Stays angewandt werden. Prod-sicherer Default 300s; fuer
+              # die kontrollierte In-Order-Demo klein setzen (SILD_M2_JITTER=5),
+              # sonst wuerde ein frisch gesendetes ADT erst nach 5 min sichtbar.
+              "--jitter-window", "${SILD_M2_JITTER:-300}"]
     volumes:
       - /srv/sild/data:/data
     networks: [sild-net]

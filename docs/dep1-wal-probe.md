@@ -131,6 +131,38 @@ A01→A02→A03 durch `DurableStore`→M-1→M-2:
 - M-2: **1 Stay** `UKH|DEMO001`/`VDEMO01`, Muster A, `closed`; Segmente
   **NA** (08:00→12:00) → **IM1** (12:00→16:00).
 
+## Live-Staging-Lauf (Bootstrap durch, Kette deployt)
+
+Stand 2026-06-15: `sild`-Konto (uid 997, gid 986), `/srv/sild` (data 0750, repo
+@ `feat/dep1-staging-snapshot`). Kette gebaut + gestartet (Container als `sild`):
+`sild-filter → sild-m1 → sild-m2 → sild-snapshot`, alle Up. `/srv/sild/data/m2_pull.db`
+wird alle 10s publiziert.
+
+**Live-Demo A01→A02→A03** (synthetisch, Patient `DEMO001`, über MLLP `127.0.0.1:2575`,
+Read je Schritt via Wegwerf-Container uid 1000 `:ro`):
+
+| Schritt | Filter-ACK | AION-Sicht (`m2_pull.db`) |
+|---|---|---|
+| A01 Aufnahme | `AA` | 1 Stay, **1 Segment** (NA, offen) |
+| A02 Verlegung | `AA` | 1 Stay, **2 Segmente** (NA→IM1) |
+| A03 Entlassung | `AA` | 1 Stay **closed**, Segmente NA (08–12h) → IM1 (12–16h) |
+
+Schreibversuch in **jedem** Read abgewiesen → Vertrag gewahrt. Quelle `m2.db`
+(WAL, live) vom Publisher nicht mutiert.
+
+**Lessons (Live):**
+- **Jitter-Fenster:** M-2 puffert Events `--jitter-window` (Default **300s**) gegen
+  Out-of-Order-Ankunft, bevor sie auf Stays angewandt werden. In der Sandbox per
+  Fake-Uhr übersprungen; **live** würde ein frisch gesendetes ADT erst nach 5 min
+  sichtbar. Für die In-Order-Demo klein gesetzt (`SILD_M2_JITTER=5`); Compose nun
+  parametrisiert (`${SILD_M2_JITTER:-300}`, prod-sicherer Default).
+- **0750-`data` + Container-Read:** Snapshot-Reads laufen über einen Wegwerf-
+  Container (uid 1000, Daemon mountet als root) — `data/` braucht **keine** Host-
+  Traversierung, bleibt 0750. Schutz = Ownership + `:ro`, nicht Dir-Mode.
+- **Build-Context-Perms:** `/srv/sild/repo` welt-lesbar (`a+rX`), damit der
+  fmatten-getriebene `docker compose build` den Context lesen kann; `data/` bleibt
+  eng.
+
 ## Artefakte
 
 - Produktion: `sild_monitoring_stack/sild_m2_snapshot.py` (Publisher),
