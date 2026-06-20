@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY sild_detector.py .
+COPY sild_durable_store.py .
 COPY sild_mllp_filter.py .
 COPY sild_mllp_target.py .
 COPY sild_mllp_sender.py .
