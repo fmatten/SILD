@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Friedhelm Matten / ISCaD GmbH
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-ISCaD-Commercial
+#
+# DEP-1 Staging-Image: vollstaendige SILD-Kette (Ingest -> M-1 -> M-2 ->
+# Snapshot-Publisher). Anders als sild_monitoring_stack/Dockerfile enthaelt
+# dieses Image die Mapper-Kette + den durable store + den Snapshot-Publisher.
+FROM python:3.11-slim
+
+LABEL org.opencontainers.image.title="SILD Staging Chain (DEP-1)"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only OR LicenseRef-ISCaD-Commercial"
+
+WORKDIR /app
+
+COPY sild_monitoring_stack/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Kern + Carrier
+COPY sild_monitoring_stack/sild_detector.py .
+COPY sild_monitoring_stack/sild_durable_store.py .
+COPY sild_monitoring_stack/sild_mllp_filter.py .
+COPY sild_monitoring_stack/sild_fhir_filter.py .
+COPY sild_monitoring_stack/sild_fhir_profiles_de.py .
+# Mapper-Kette + Pull-Publisher (DEP-1)
+COPY sild_monitoring_stack/sild_mapper_m1.py .
+COPY sild_monitoring_stack/sild_mapper_m2.py .
+COPY sild_monitoring_stack/sild_m2_snapshot.py .
+# Demo-/Testhilfen (nur synthetisch)
+COPY sild_monitoring_stack/sild_mllp_sender.py .
+COPY sild_monitoring_stack/samples/ ./samples/
+
+# Default; je Service in docker-compose.sild.yml ueberschrieben.
+CMD ["python", "-u", "sild_mapper_m2.py", "--help"]
