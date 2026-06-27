@@ -25,12 +25,17 @@ services:
     command: ["python", "-u", "sild_mllp_filter.py",
               "--listen", "2575",
               "--durable-store", "/data/intake.db",
-              "--log", "/data/logs/sild_reports.jsonl"]
+              "--log", "/data/logs/sild_reports.jsonl",
+              # P6-Durabilitaet #2: Prometheus-Endpoint (lauscht nur intern,
+              # Scrape erreicht ihn ueber das geteilte aionprod_aion-net).
+              "--metrics-port", "9100"]
     ports:
       - "127.0.0.1:2575:2575"      # nur lokal — Demo-Sender auf der Box
     volumes:
       - /srv/sild/data:/data
-    networks: [sild-net]
+    # P6-Durabilitaet #3: zusaetzlich am fremden aionprod-Netz, damit der
+    # aionprod-Prometheus den 9100-Endpoint scrapen kann (siehe networks-Block).
+    networks: [sild-net, aionprod_aion-net]
 
   # 2) M-1: sichtet intake.db (read-only) -> m1.db
   sild-m1:
@@ -87,3 +92,8 @@ services:
 networks:
   sild-net:
     name: sild-net
+  # P6-Durabilitaet #3: fremdes Netz des aionprod-Compose-Projekts. SILD besitzt
+  # es NICHT (external) und erzeugt es nicht — es muss vor dem SILD-`up` existieren.
+  aionprod_aion-net:
+    external: true
+    name: aionprod_aion-net
