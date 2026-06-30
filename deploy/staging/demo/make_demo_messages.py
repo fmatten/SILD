@@ -58,11 +58,59 @@ RS = msg([
     f"ORC|NW|PLACER-DEMO9001|FILLER-1|||||20260612090000",
 ])
 
+# --- Rot-Negativ-Samples: TN / TC / AD (DETECT-SAMPLES-45) --------------------
+# Wie RS (oben) je EIGENER Patient/Visit, ADT^A01-Envelope mit NA-Location (bildet
+# einen sauberen Stay), plus der EXAKTE Trigger-Segment-Wortlaut aus den
+# bestehenden Conformance-Vektoren ("SILD Conformance Test Vectors v2 v0.1.md").
+# KEIN neuer Detektor-Code — die Samples loesen bestehende Regeln in
+# sild_detector.analyse_hl7_message() aus. Severity = was der Vektor
+# DETERMINISTISCH erzeugt (nicht erzwungen):
+#   TN-CE-01 -> Type Narrowing  / WARNING   (OBX-3 Text ohne code+system)
+#   TC-OBR-01 -> Temporal Collapse / WARNING (OBR-7 != OBR-8, beide gesetzt)
+#   AD-OBX-01 -> Attribute Dropping / CRITICAL (OBX-2=NM, OBX-15+OBX-16 leer)
+# Trigger-Segmente sauber single-pattern (in S3 deterministisch belegt).
+
+# Type Narrowing — Vektor TN-CE-01.positive.obx-3-display-only
+TN_DEMO, TN_VISIT = "DEMOTN1", "VDEMOTN1"
+TN = msg([
+    f"MSH|^~\\&|ADT|UKH|KIS|UKH|20260612093000||ADT^A01|DEMO0005|P|2.5.1",
+    f"EVN|A01|20260612093000",
+    f"PID|1||{TN_DEMO}^^^UKH^MR||DEMOPATIENT^TINA||19800202|F",
+    f"PV1|1|I|NA^001^1^UKH||||10001^DEMOARZT^DANA|||IM|||||{TN_VISIT}",
+    f"OBR|1|ORD-TN|FILL-TN|58410-2^CBC panel^LN|||20260612093000",
+    f"OBX|1|NM|^Troponin T^||0.05|ng/mL||N|||F|||20260612093000|LAB-01|MA-IMMUNO^Roche Cobas^HOSP",
+])
+
+# Temporal Collapse — Vektor TC-OBR-01.positive.interval-distinct
+TC_DEMO, TC_VISIT = "DEMOTC1", "VDEMOTC1"
+TC = msg([
+    f"MSH|^~\\&|ADT|UKH|KIS|UKH|20260612094000||ADT^A01|DEMO0006|P|2.5.1",
+    f"EVN|A01|20260612094000",
+    f"PID|1||{TC_DEMO}^^^UKH^MR||DEMOPATIENT^TOMAS||19751212|M",
+    f"PV1|1|I|NA^001^1^UKH||||10001^DEMOARZT^DANA|||IM|||||{TC_VISIT}",
+    f"OBR|1|ORD-TC|FILL-TC|58410-2^CBC panel^LN|||20260612094000|20260612095000",
+    f"OBX|1|NM|718-7^Hemoglobin^LN||10.2|g/dL||L|||F|||20260612095000|LAB-01|MA-IMMUNO^Roche Cobas^HOSP",
+])
+
+# Attribute Dropping — Vektor AD-OBX-01.positive.nm-without-device-and-observer
+AD_DEMO, AD_VISIT = "DEMOAD1", "VDEMOAD1"
+AD = msg([
+    f"MSH|^~\\&|ADT|UKH|KIS|UKH|20260612095000||ADT^A01|DEMO0007|P|2.5.1",
+    f"EVN|A01|20260612095000",
+    f"PID|1||{AD_DEMO}^^^UKH^MR||DEMOPATIENT^ADA||19900909|F",
+    f"PV1|1|I|NA^001^1^UKH||||10001^DEMOARZT^DANA|||IM|||||{AD_VISIT}",
+    f"OBR|1|ORD-AD|FILL-AD|58410-2^CBC panel^LN|||20260612095000",
+    f"OBX|1|NM|718-7^Hemoglobin^LN||10.2|g/dL||L|||F|||20260612095000",
+])
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     for name, raw in (("demo01_adt_a01.hl7", A01),
                       ("demo02_adt_a02.hl7", A02),
                       ("demo03_adt_a03.hl7", A03),
-                      ("demo04_adt_rs.hl7",  RS)):
+                      ("demo04_adt_rs.hl7",  RS),
+                      ("demo05_adt_tn.hl7",  TN),
+                      ("demo06_adt_tc.hl7",  TC),
+                      ("demo07_adt_ad.hl7",  AD)):
         (OUT / name).write_bytes(raw)
         print(f"[demo] {OUT / name} ({len(raw)} B)")
