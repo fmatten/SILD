@@ -408,7 +408,7 @@ Werkzeug für Datenqualitäts-Monitoring — keine klinische Entscheidungssoftwa
 | Projekt | Beschreibung |
 |---|---|
 | [CAIRN](https://codeberg.org/iscad/cairn) | FM-2: Clinical Interoperability Reference Architecture (Python) |
-| [AION](https://github.com/fmatten/aion) | FM-3: Algebraic Interval Ontology for Clinical Networks · [codeberg.org/iscad/aion](https://codeberg.org/iscad/aion) · [10.5281/zenodo.19553130](https://doi.org/10.5281/zenodo.19553130) |
+| [AION](https://github.com/fmatten/aion) | FM-3: Algebraic Interval Ontology for Clinical Networks · [codeberg.org/iscad/aion](https://codeberg.org/iscad/aion) · [10.5281/zenodo.21254124](https://doi.org/10.5281/zenodo.21254124) |
 | [FM-1](https://doi.org/10.5281/zenodo.19205557) | Grundlagen zur wissenschaftlichen Auswertung klinischer Informationen (DOI: 10.5281/zenodo.19205557) |
 | [FM-4 Paper v2](https://doi.org/10.5281/zenodo.20391260) | Signal-Loss Inspection at Data-boundaries, Version 2 — AGPL-3.0 OR Commercial (DOI: 10.5281/zenodo.20391260) |
 | [SILD auf Codeberg](https://codeberg.org/fmatten/sild) | Mirror dieses Repositories |
