@@ -1,0 +1,26 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:obs-301",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-301",
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "6598-7"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/p-001"
+        }
+      }
+    }
+  ],
+  "id": "ad-v05"
+}

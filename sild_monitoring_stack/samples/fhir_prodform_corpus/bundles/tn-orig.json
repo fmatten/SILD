@@ -1,0 +1,25 @@
+{
+  "resourceType": "Bundle",
+  "type": "transaction",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:obs-001",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-001",
+        "status": "final",
+        "code": {
+          "text": "Troponin"
+        },
+        "subject": {
+          "reference": "Patient/p-001"
+        },
+        "valueQuantity": {
+          "value": 0.05,
+          "unit": "ng/mL"
+        }
+      }
+    }
+  ],
+  "id": "tn-orig"
+}
