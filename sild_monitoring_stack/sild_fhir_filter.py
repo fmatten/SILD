@@ -350,6 +350,9 @@ class FHIRRequestHandler(BaseHTTPRequestHandler):
                 "total_resources":  report.total_segments,
                 "sild":             report.to_json_dict(),
                 "forward_decision": forward_decision,
+                # AION-DEMO-2: Ziel-Adresse gehoert in den Befund (Quelle=tenant_id,
+                # Ziel=forward_target+forward_status), leer wenn kein Forwarder
+                "forward_target":   self.forwarder.base_url if self.forwarder else "",
                 "forward_status":   forward_status,
                 "elapsed_ms":       round(elapsed * 1000, 2),
                 "ack_code":         ack_code,
