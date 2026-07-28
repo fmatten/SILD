@@ -19,12 +19,15 @@ import json
 import socketserver
 import threading
 import uuid
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 
 
 class MockFHIRHandler(BaseHTTPRequestHandler):
     counter = [0]
     lock = threading.Lock()
+    receipt_log = None  # AION-DEMO-3: Pfad für Empfangsprotokoll (JSONL)
 
     def log_message(self, format, *args):
         pass
@@ -73,6 +76,22 @@ class MockFHIRHandler(BaseHTTPRequestHandler):
         print(f"[AION-FHIR-Mock] #{n} from {self.client_address[0]}: "
               f"Bundle/{bundle_type} id={bundle_id} ({len(entries)} entries)")
 
+        # AION-DEMO-3: Empfangsprotokoll — belegt den Empfang JEDES Bundles,
+        # auch solcher ohne Verlustbefund (clean wird vom Filter per Design
+        # nicht auditiert, FM-4 §5.2)
+        if self.receipt_log:
+            record = {
+                "timestamp":   datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                "receipt_no":  n,
+                "control_id":  bundle_id,
+                "bundle_type": bundle_type,
+                "entries":     len(entries),
+                "from":        self.client_address[0],
+            }
+            with self.lock:
+                with open(self.receipt_log, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
         # N-3 Fix: Valide FHIR-Location im Format ResourceType/id
         # Vorher: f"#{i}" (kein gueltiges FHIR-Location-Format)
         # Jetzt:  ResourceType/id aus dem Entry, Fallback auf generierte UUID
@@ -108,7 +127,15 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 def main():
     parser = argparse.ArgumentParser(description="Mock FHIR endpoint (AION simulator)")
     parser.add_argument("--listen", type=int, default=8081)
+    parser.add_argument("--receipt-log", type=str, default=None,
+                        help="JSONL-Empfangsprotokoll, eine Zeile je empfangenem "
+                             "Bundle (AION-DEMO-3)")
     args = parser.parse_args()
+
+    if args.receipt_log:
+        Path(args.receipt_log).parent.mkdir(parents=True, exist_ok=True)
+        MockFHIRHandler.receipt_log = args.receipt_log
+        print(f"[AION-FHIR-Mock] Receipt-Log: {args.receipt_log}")
 
     print(f"[AION-FHIR-Mock] Listening on http://0.0.0.0:{args.listen}")
     print(f"[AION-FHIR-Mock] Endpoints: POST /fhir/Bundle, POST /Bundle, GET /health\n")
