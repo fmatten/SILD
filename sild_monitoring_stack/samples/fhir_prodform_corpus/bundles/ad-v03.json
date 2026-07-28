@@ -19,6 +19,10 @@
         "subject": {
           "reference": "Patient/p-001"
         }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
       }
     }
   ],

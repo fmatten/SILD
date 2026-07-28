@@ -23,6 +23,10 @@
           "value": 0.05,
           "unit": "ng/mL"
         }
+      },
+      "request": {
+        "method": "POST",
+        "url": "Observation"
       }
     }
   ],

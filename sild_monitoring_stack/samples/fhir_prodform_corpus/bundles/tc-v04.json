@@ -9,6 +9,15 @@
         "id": "mr-001",
         "status": "active",
         "intent": "order",
+        "medicationCodeableConcept": {
+          "coding": [
+            {
+              "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+              "code": "723",
+              "display": "Amoxicillin"
+            }
+          ]
+        },
         "subject": {
           "reference": "Patient/p-001"
         },
@@ -31,6 +40,10 @@
             ]
           }
         ]
+      },
+      "request": {
+        "method": "POST",
+        "url": "MedicationRequest"
       }
     }
   ],
