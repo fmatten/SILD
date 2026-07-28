@@ -3,7 +3,7 @@
   "type": "transaction",
   "entry": [
     {
-      "fullUrl": "urn:uuid:obs-001",
+      "fullUrl": "urn:uuid:c7c9ab20-f5fe-5613-bfe5-33a67e0a7547",
       "resource": {
         "resourceType": "Observation",
         "id": "obs-001",
