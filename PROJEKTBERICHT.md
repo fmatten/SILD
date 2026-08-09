@@ -359,7 +359,8 @@ Buckets `sild_loss_budget_bits_estimate`: (10, 20, 40, 80, 160, 320, 640) bit
 | Latenz P50/P95/P99 | Time-Series | Perzentilvergleich |
 | Forward-Entscheidungen | Donut | forwarded/blocked/forward-failed |
 
-Refresh: 5s — Zeitbereich: letzte 15 Minuten — Zugangsdaten: admin/sild-demo
+Refresh: 5s — Zeitbereich: letzte 15 Minuten — Zugangsdaten: Benutzer `admin`,
+Passwort aus `GF_SECURITY_ADMIN_PASSWORD` (in `sild_monitoring_stack/.env` zu setzen)
 
 ---
 

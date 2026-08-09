@@ -114,6 +114,7 @@ produktive Audit-Pipeline aufsetzen.
 
 ```bash
 cd sild_monitoring_stack
+cp .env.example .env         # einmalig: GF_SECURITY_ADMIN_PASSWORD selbst vergeben
 docker compose up -d
 sleep 30
 
@@ -121,7 +122,9 @@ open http://localhost:3000   # Grafana-Dashboard (anonymer Zugriff)
 open http://localhost:9090   # Prometheus-UI
 ```
 
-Grafana-Login für Editierrechte: **admin** / **sild-demo**
+Grafana-Login für Editierrechte: Benutzer **admin**, Passwort das in der `.env`
+vergebene. `GF_SECURITY_ADMIN_PASSWORD` ist Pflicht — ohne den Wert startet der
+Stack nicht. Der Stack bringt bewusst keinen Vorgabewert mit.
 
 ### Ports
 

@@ -32,18 +32,24 @@
 ## Schnellstart
 
 ```bash
-# 1. Stack starten
+# 1. Grafana-Admin-Passwort festlegen (einmalig, Pflicht)
+cp .env.example .env
+$EDITOR .env                    # GF_SECURITY_ADMIN_PASSWORD selbst vergeben
+
+# 2. Stack starten
 docker compose up -d
 
-# 2. ~30 Sekunden warten (Container-Start, Lastgenerator beginnt zu senden)
+# 3. ~30 Sekunden warten (Container-Start, Lastgenerator beginnt zu senden)
 
-# 3. Browser öffnen
+# 4. Browser öffnen
 open http://localhost:3000      # Grafana (anonymer Zugriff als Viewer)
 open http://localhost:9090      # Prometheus-UI (zum Stöbern)
 open http://localhost:9100/metrics   # Roher Metrics-Endpunkt
 ```
 
-Login Grafana (für Editier-Rechte): **admin** / **sild-demo**.
+**Betriebshinweis:** `GF_SECURITY_ADMIN_PASSWORD` muss gesetzt sein, sonst startet der Stack nicht — `docker compose` bricht mit der Meldung „bitte in .env setzen" ab. Das ist Absicht: der Stack bringt kein Passwort mehr mit, es gibt also keinen Vorgabewert, den man zu ändern vergessen könnte. Die `.env` ist über `.gitignore` vom Einchecken ausgenommen.
+
+Login Grafana (für Editier-Rechte): Benutzer **admin**, Passwort das in der `.env` vergebene.
 
 Anonymer Zugriff ist als Viewer aktiviert — fürs Demo-Vorführen brauchst du also keinen Login.
 
