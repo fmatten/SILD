@@ -332,10 +332,10 @@ def apply_severity_overrides(
 # ===========================================================================
 
 _PATTERN_DISPLAY = {
-    LossPattern.TYPE_NARROWING.value:     "FM-4 Def. 2.1: Type Narrowing",
-    LossPattern.TEMPORAL_COLLAPSE.value:  "FM-4 Def. 2.2: Temporal Collapse",
-    LossPattern.ATTRIBUTE_DROPPING.value: "FM-4 Def. 2.3: Attribute Dropping",
-    LossPattern.REFERENCE_SEVERED.value:  "FM-4 Def. 2.4: Reference Severing",
+    LossPattern.TYPE_NARROWING.value:     "FM-4: Type Narrowing",
+    LossPattern.TEMPORAL_COLLAPSE.value:  "FM-4: Temporal Collapse",
+    LossPattern.ATTRIBUTE_DROPPING.value: "FM-4: Attribute Dropping",
+    LossPattern.REFERENCE_SEVERED.value:  "FM-4: Reference Severing",
 }
 _SEV_TO_OUTCOME = {"info": "0", "warning": "4", "critical": "8"}
 
@@ -469,7 +469,7 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.TEMPORAL_COLLAPSE, f"OBR/{current_obr_id}",
                     f"OBR-7={obr_7} und OBR-8={obr_8} — Beobachtungsintervall "
-                    f"kollabiert bei FHIR-Mapping auf effectiveDateTime (FM-4 Def. 2.2)",
+                    f"kollabiert bei FHIR-Mapping auf effectiveDateTime (FM-4)",
                     "warning",
                 ))
 
@@ -550,7 +550,7 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.REFERENCE_SEVERED, f"PV1/{pv1_19}",
                     f"PV1-19 (Visit Number '{pv1_19}') ohne Encounter-Mapping "
-                    f"im Ziel nicht auflösbar (FM-4 Def. 2.4)",
+                    f"im Ziel nicht auflösbar (FM-4)",
                     "warning",
                 ))
 
@@ -561,7 +561,7 @@ def analyse_hl7_message(message_text: str) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.ATTRIBUTE_DROPPING, "RXA",
                     "RXA ohne vollständige Dosis (RXA-6) oder Einheit (RXA-7) — "
-                    "klinisch kritisch (FM-4 Def. 2.3)",
+                    "klinisch kritisch (FM-4)",
                     "critical",
                 ))
 
@@ -704,7 +704,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                         LossPattern.TEMPORAL_COLLAPSE, loc,
                         f"Kategorie '{primary_cat}' impliziert Zeitintervall; "
                         f"effectiveDateTime statt effectivePeriod — "
-                        f"dim t(e) > dim t(e'') (FM-4 Def. 2.2, M-2)",
+                        f"dim t(e) > dim t(e'') (FM-4, M-2)",
                         "warning",
                     ))
                 # Fallback: Aggregat-Keyword im Code-Display
@@ -716,7 +716,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     losses.append(LossEvent(
                         LossPattern.TEMPORAL_COLLAPSE, loc,
                         f"Aggregat-Wert ('{code_displays[0] if code_displays else '?'}') "
-                        f"auf Zeitpunkt reduziert (FM-4 Def. 2.2)",
+                        f"auf Zeitpunkt reduziert (FM-4)",
                         "warning",
                     ))
 
@@ -726,7 +726,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
             if is_narrowed:
                 losses.append(LossEvent(
                     LossPattern.TYPE_NARROWING, loc,
-                    f"Observation.code: {tn_reason} (FM-4 Def. 2.1)",
+                    f"Observation.code: {tn_reason} (FM-4)",
                     tn_severity,
                 ))
             elif primary_cat in GENERIC_FHIR_CATEGORIES and any(
@@ -735,7 +735,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.TYPE_NARROWING, loc,
                     f"Kategorie '{primary_cat}' generisch; spezifischer Subtyp im Code "
-                    f"(FM-4 Def. 2.1, Heuristik)",
+                    f"(FM-4, Heuristik)",
                     "info",
                 ))
 
@@ -757,7 +757,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.REFERENCE_SEVERED, loc,
                     "Labor-Beobachtung ohne basedOn-Referenz; Auftragskontext verloren "
-                    "(FM-4 Def. 2.4)",
+                    "(FM-4)",
                     "info",
                 ))
             # --- Attribute Dropping: Labor ohne method/device ---
@@ -765,7 +765,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                 losses.append(LossEvent(
                     LossPattern.ATTRIBUTE_DROPPING, loc,
                     "Labor ohne method/device — Messverfahren-Provenienz verloren "
-                    "(FM-4 Def. 2.3)",
+                    "(FM-4)",
                     "info",
                 ))
 
@@ -809,7 +809,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                         LossPattern.TEMPORAL_COLLAPSE, loc,
                         f"Kontinuierliche Prozedur "
                         f"('{CONTINUOUS_PROCEDURE_CODES_FHIR[code_value]}') "
-                        f"auf Zeitpunkt reduziert (FM-4 Def. 2.2, M-2, kritisch)",
+                        f"auf Zeitpunkt reduziert (FM-4, M-2, kritisch)",
                         "critical",
                     ))
                 else:
@@ -819,7 +819,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                     losses.append(LossEvent(
                         LossPattern.TEMPORAL_COLLAPSE, loc,
                         f"Prozedur ('{disp}') mit performedDateTime statt "
-                        f"performedPeriod — Intervall kollabiert (FM-4 Def. 2.2, M-2)",
+                        f"performedPeriod — Intervall kollabiert (FM-4, M-2)",
                         "warning",
                     ))
 
@@ -827,7 +827,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
             if "dosage" not in resource:
                 losses.append(LossEvent(
                     LossPattern.ATTRIBUTE_DROPPING, loc,
-                    "Medikamenten-Gabe ohne dosage — klinisch kritisch (FM-4 Def. 2.3)",
+                    "Medikamenten-Gabe ohne dosage — klinisch kritisch (FM-4)",
                     "critical",
                 ))
 
@@ -874,7 +874,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
             if is_narrowed:
                 losses.append(LossEvent(
                     LossPattern.TYPE_NARROWING, loc,
-                    f"Condition.code: {tn_reason} (FM-4 Def. 2.1)",
+                    f"Condition.code: {tn_reason} (FM-4)",
                     tn_severity,
                 ))
 
@@ -884,7 +884,7 @@ def analyse_fhir_bundle(bundle: dict) -> SILDReport:
                 if is_narrowed:
                     losses.append(LossEvent(
                         LossPattern.TYPE_NARROWING, loc,
-                        f"Condition.bodySite[{i}]: {tn_reason} (FM-4 Def. 2.1)",
+                        f"Condition.bodySite[{i}]: {tn_reason} (FM-4)",
                         tn_severity,
                     ))
 
