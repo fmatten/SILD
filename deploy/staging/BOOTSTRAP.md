@@ -21,8 +21,14 @@ nicht-privilegierten Rest (Build, `up` als `sild`, Demo).
 ```bash
 sudo useradd --system --create-home --shell /usr/sbin/nologin sild
 # uid/gid notieren — werden fuer die Compose-.env gebraucht:
-id sild        # -> z.B. uid=997(sild) gid=997(sild)
+id sild        # -> uid/gid MESSEN, nicht uebernehmen:  id -u sild ; id -g sild
+#                 (Beispielwerte sind rechnerabhaengig; uid und gid koennen
+#                  voneinander abweichen - beide einzeln messen)
 ```
+
+> **ÜBERHOLT durch E11 (named volume), Stufe 2 vom 04.09.2026.**
+> Abschnitte B-2/B-3 beschreiben den Weg vor der Volume-Umstellung und bleiben
+> als Zeitdokument stehen; für einen Neuaufbau gilt E11.
 
 ## B-2 — Verzeichnislayout unter `/srv/sild` (Eigentümer `sild`)
 
